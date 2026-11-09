@@ -1,0 +1,5 @@
+{"timestamp": "2026-11-02T01:00:00Z", "model_level_pct": 43, "display_level_pct": 43, "flow_lpm": 120, "input_feed": "normal", "mode": "normal"}
+{"timestamp": "2026-11-02T01:00:10Z", "model_level_pct": 44, "display_level_pct": 72, "flow_lpm": 121, "input_feed": "untrusted", "mode": "normal"}
+{"timestamp": "2026-11-02T01:00:20Z", "model_level_pct": 44, "display_level_pct": 74, "flow_lpm": 119, "input_feed": "untrusted", "mode": "normal"}
+{"timestamp": "2026-11-02T01:00:30Z", "model_level_pct": 45, "display_level_pct": 75, "flow_lpm": 120, "input_feed": "untrusted", "mode": "normal"}
+{"timestamp": "2026-11-02T01:00:40Z", "model_level_pct": 45, "display_level_pct": 75, "flow_lpm": 119, "input_feed": "untrusted", "mode": "normal"}

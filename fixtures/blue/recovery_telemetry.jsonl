@@ -1,0 +1,3 @@
+{"timestamp": "2026-11-02T01:02:00Z", "model_level_pct": 45, "display_level_pct": 45, "flow_lpm": 119, "input_feed": "isolated", "mode": "safe_mode"}
+{"timestamp": "2026-11-02T01:02:10Z", "model_level_pct": 44, "display_level_pct": 44, "flow_lpm": 120, "input_feed": "isolated", "mode": "safe_mode"}
+{"timestamp": "2026-11-02T01:02:20Z", "model_level_pct": 44, "display_level_pct": 44, "flow_lpm": 121, "input_feed": "isolated", "mode": "safe_mode"}

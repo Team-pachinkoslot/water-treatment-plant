@@ -1,0 +1,21 @@
+{
+  "trainingOnly": true,
+  "alertId": "aqua-sensor-mismatch-01",
+  "severity": "warning",
+  "title": "監視表示値と独立モデル値の不一致",
+  "trigger": {
+    "metric": "absolute_percent_point_difference",
+    "threshold": 15,
+    "consecutiveSamples": 3
+  },
+  "firstMismatchAt": "2026-11-02T01:00:10Z",
+  "raisedAt": "2026-11-02T01:00:30Z",
+  "message": "表示用データ入力が信頼できない可能性があります。実際の設備には接続していません。",
+  "allowedActions": [
+    "ACKNOWLEDGE_ANOMALY",
+    "ISOLATE_TRAINING_FEED",
+    "ENTER_SIMULATED_SAFE_MODE",
+    "VERIFY_STABLE",
+    "RESTORE_SIMULATED_MONITORING"
+  ]
+}
