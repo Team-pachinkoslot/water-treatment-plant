@@ -5,3 +5,11 @@ coverage/
 *.tsbuildinfo
 .DS_Store
 .env*.local
+.local/
+
+node_modules/
+.next/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example

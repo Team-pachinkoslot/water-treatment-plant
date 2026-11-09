@@ -8,7 +8,7 @@ describe("AQUA runtime boundary", () => {
   it.each([undefined, "disabled", "mock", "enabled"])("rejects every mutation for mode %s", async mode => {
     const runtime = getScenarioRuntime(mode);
     expect(runtime.mode).toBe("disabled");
-    for (const operation of [runtime.start("water-01"), runtime.submitFlag("untrusted-session", "S05", "untrusted-input"), ...aquaScenario.blueActions.map(a => runtime.performBlueAction("untrusted-session", a.code))]) {
+    for (const operation of [runtime.start("water-01"), runtime.submitFlag({ sessionId: "untrusted-session", token: "" }, "S05", "untrusted-input"), ...aquaScenario.blueActions.map(a => runtime.performBlueAction({ sessionId: "untrusted-session", token: "" }, a.code))]) {
       await expect(operation).rejects.toMatchObject({ code: "RUNTIME_NOT_CONFIGURED" });
     }
     await expect(runtime.start("unknown-lab")).rejects.toBeInstanceOf(ScenarioRuntimeError);
