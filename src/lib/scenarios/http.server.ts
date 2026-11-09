@@ -10,11 +10,15 @@ function checkRequest(request: Request, mutation = false) {
   if (getScenarioMode() !== "simulator") throw new ScenarioRuntimeError();
   const url = new URL(request.url);
   if (!["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)) fail("LOCAL_ONLY", "テスト演習はローカル環境専用です。", 403);
-  const host = request.headers.get("host");
-  if (host && host !== url.host) fail("LOCAL_ONLY", "接続先を確認してください。", 403);
+  // Next.js may normalize request.url to localhost even for a 127.0.0.1 request.
+  // Validate both authorities as loopback; compare Origin to the actual Host header.
+  const host = request.headers.get("host") ?? url.host;
+  let authority: URL;
+  try { authority = new URL(`${url.protocol}//${host}`); } catch { return fail("LOCAL_ONLY", "接続先を確認してください。", 403); }
+  if (!["127.0.0.1", "localhost", "[::1]"].includes(authority.hostname) || authority.port !== url.port || authority.username || authority.password || authority.host !== host) fail("LOCAL_ONLY", "接続先を確認してください。", 403);
   if (request.headers.get("sec-fetch-site") === "cross-site") fail("ORIGIN_REJECTED", "同じサイトから操作してください。", 403);
   if (mutation) {
-    if (request.headers.get("origin") !== url.origin) fail("ORIGIN_REJECTED", "同じサイトから操作してください。", 403);
+    if (request.headers.get("origin") !== authority.origin) fail("ORIGIN_REJECTED", "同じサイトから操作してください。", 403);
     if (!request.headers.get("content-type")?.startsWith("application/json")) fail("INVALID_CONTENT_TYPE", "JSONで送信してください。", 415);
   }
 }

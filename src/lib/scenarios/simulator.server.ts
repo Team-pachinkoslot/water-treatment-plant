@@ -23,7 +23,7 @@ interface StoredSession {
   events: SessionView["events"];
 }
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
-const fail = (code: string, message: string, status = 400): never => { throw new LabError(code, message, status); };
+function fail(code: string, message: string, status = 400): never { throw new LabError(code, message, status); }
 function stageId(value: string): StageId {
   if (!aquaScenario.redStages.some(s => s.id === value)) fail("INVALID_STAGE", "ステージが見つかりません。");
   return value as StageId;
@@ -129,6 +129,7 @@ export class SimulatorScenarioRuntime implements ScenarioRuntimeAdapter {
     try {
       db.exec("BEGIN IMMEDIATE");
       db.prepare("DELETE FROM starts WHERE at < ?").run(Date.now() - 60_000);
+      db.prepare("DELETE FROM sessions WHERE json_extract(data, '$.expiresAt') <= ?").run(new Date().toISOString());
       const count = db.prepare("SELECT count(*) as n FROM starts").get() as { n: number };
       if (count.n >= 10) fail("RATE_LIMITED", "開始回数の上限です。1分後に再試行してください。", 429);
       db.prepare("INSERT INTO starts(at) VALUES (?)").run(Date.now());

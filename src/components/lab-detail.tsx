@@ -46,6 +46,7 @@ export function LabDetail({ lab }: { lab: Lab }) {
         <PlantDiagram category={lab.category} />
       </section>
       {water && <nav className="aqua-nav" aria-label="PROJECT AQUA 教材">
+        <Link href="/labs/water-treatment/practice">テスト演習 →</Link>
         <Link href="/labs/water-treatment/red">Red Team / 5つの課題 →</Link>
         <Link href="/labs/water-treatment/blue">Blue Team / 監視モック →</Link>
         <Link href="/labs/water-treatment/results">演習結果（準備中）</Link>

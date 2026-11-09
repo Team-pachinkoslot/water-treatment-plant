@@ -8,7 +8,9 @@
     "start": "next start --hostname 127.0.0.1",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "dev:simulator": "LAB_RUNTIME_MODE=simulator next dev --hostname 127.0.0.1",
+    "start:simulator": "LAB_RUNTIME_MODE=simulator next start --hostname 127.0.0.1"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
