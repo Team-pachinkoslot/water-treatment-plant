@@ -124,6 +124,14 @@ describe("HTTP ownership and disabled boundary", () => {
     expect((await handleSessionRequest(req("POST", { labId: "water-01" }, {}, "http://external.test/api/lab-sessions"))).status).toBe(403);
     expect((await handleSessionRequest(req("POST", { labId: "water-01" }, { origin: "" }))).status).toBe(403);
   });
+  it("accepts normalized loopback URLs while rejecting a non-local Host header", async () => {
+    vi.stubEnv("LAB_RUNTIME_MODE", "simulator");
+    vi.spyOn(runtimes, "getScenarioRuntime").mockReturnValue(runtime);
+    const normalized = req("POST", { labId: "water-01" }, { host: "127.0.0.1:3000", origin: "http://127.0.0.1:3000" });
+    expect((await handleSessionRequest(normalized)).status).toBe(201);
+    const spoofed = req("POST", { labId: "water-01" }, { host: "external.test:3000", origin: "http://external.test:3000" });
+    expect((await handleSessionRequest(spoofed)).status).toBe(403);
+  });
   it("limits actual body length and rejects malformed JSON", async () => {
     vi.stubEnv("LAB_RUNTIME_MODE", "simulator");
     const large = await handleSessionRequest(req("POST", { labId: "a".repeat(25_000) }));

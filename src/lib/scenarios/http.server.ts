@@ -74,7 +74,7 @@ export async function handleSessionRequest(request: Request, id?: string, operat
       return response({ session: started.session }, 201, started);
     }
     if (operation === "flags") return response({ session: await runtime.submitFlag(access, text(data.stageId), text(data.flag), evidenceFields(data.evidence)) });
-    if (operation === "hints") return response(await runtime.getHint(access, text(data.stageId), Number(data.index)));
+    if (operation === "hints") return response(await runtime.getHint(access, text(data.stageId), typeof data.index === "number" ? data.index : -1));
     if (operation === "stage5-evidence") return response(await runtime.stage5Evidence(access, { sourceIp: text(data.sourceIp), firstEventTimestampUtc: text(data.firstEventTimestampUtc) }));
     if (operation === "report") {
       const fields = evidenceFields(data.report);
@@ -82,7 +82,7 @@ export async function handleSessionRequest(request: Request, id?: string, operat
       return response({ session: await runtime.submitReport(access, text(data.track) as "red" | "blue", report) });
     }
     if (operation === "blue-actions") {
-      return response({ session: await runtime.performBlueAction(access, text(data.action) as BlueActionCode, { timestamps: Array.isArray(data.timestamps) ? data.timestamps.filter((v): v is string => typeof v === "string") : [], explanation: text(data.explanation) }) });
+      return response({ session: await runtime.performBlueAction(access, text(data.action) as BlueActionCode, { timestamps: Array.isArray(data.timestamps) && data.timestamps.every(v => typeof v === "string") ? data.timestamps as string[] : [], explanation: text(data.explanation) }) });
     }
     return fail("NOT_FOUND", "操作が見つかりません。", 404);
   } catch (error) {

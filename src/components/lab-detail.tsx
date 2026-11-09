@@ -251,7 +251,7 @@ export function LabDetail({ lab }: { lab: Lab }) {
                 <dd>準備中</dd>
               </div>
               <div>
-                <dt>ランタイム</dt>
+                <dt>実VMランタイム</dt>
                 <dd>無効 / 未接続</dd>
               </div>
               <div>
