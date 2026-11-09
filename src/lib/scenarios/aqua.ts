@@ -88,31 +88,31 @@ export const aquaScenario = {
       "code": "ACKNOWLEDGE_ANOMALY",
       "from": "anomaly_detected",
       "to": "investigating",
-      "label": "異常を確認"
+      "label": "異常を確認する"
     },
     {
       "code": "ISOLATE_TRAINING_FEED",
       "from": "investigating",
       "to": "input_isolated",
-      "label": "訓練データ入力を隔離"
+      "label": "表示用データ入力を隔離する"
     },
     {
       "code": "ENTER_SIMULATED_SAFE_MODE",
       "from": "input_isolated",
       "to": "safe_mode",
-      "label": "安全モードに移行"
+      "label": "安全モードへ移行する"
     },
     {
       "code": "VERIFY_STABLE",
       "from": "safe_mode",
       "to": "verified",
-      "label": "正常性を確認"
+      "label": "正常性を確認する"
     },
     {
       "code": "RESTORE_SIMULATED_MONITORING",
       "from": "verified",
       "to": "recovered",
-      "label": "模擬監視を復旧"
+      "label": "自動運転(AUTO)へ復旧する"
     }
   ]
 } as const satisfies ScenarioDefinition;

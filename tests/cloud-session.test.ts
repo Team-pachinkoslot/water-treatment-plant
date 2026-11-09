@@ -1,4 +1,5 @@
 import { commandFlows } from "./command-flows";
+import { blueAnswers, blueReport } from "./blue-answers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { randomBytes } from "node:crypto";
 import { handleSessionRequest } from "../src/lib/scenarios/http.server";
@@ -29,7 +30,7 @@ class Browser {
     return { response, data };
   }
 }
-const report = { observations: "表示値と独立したモデルに不一致を認めた。", evidence: "模擬ログと独立した観測値を比較して証拠を記録した。", timeline: "UTCの順番で調査、隔離、安全モード、正常確認を行った。", improvements: "公開情報を分離し復旧条件を確認してから正常監視へ戻す。" };
+const report = { observations: "公開サービスとWebページの手掛かりを確認した。", evidence: "模擬ログと独立した観測値を比較して証拠を記録した。", timeline: "UTCの順番で調査、隔離、安全モード、正常確認を行った。", improvements: "公開情報を分離し復旧条件を確認してから正常監視へ戻す。" };
 async function solveRed(browser: Browser) {
   for (const stageId of ["S01", "S02", "S03", "S04", "S05"]) {
     let output = "";
@@ -74,12 +75,16 @@ describe("Vercel-only exercise transport", () => {
     expect((await browser.call("materials", { stageId: "S05" })).response.status).toBe(409);
     await solveRed(browser);
     expect((await browser.call("blue-actions", { action: "RESTORE_SIMULATED_MONITORING" })).data.error.code).toBe("INVALID_STATE_TRANSITION");
-    expect((await browser.call("blue-actions", { action: "ACKNOWLEDGE_ANOMALY", timestamps: ["2026-11-02T01:00:10Z", "2026-11-02T01:00:20Z", "2026-11-02T01:00:30Z"], explanation: report.evidence })).response.status).toBe(200);
-    for (const action of ["ISOLATE_TRAINING_FEED", "ENTER_SIMULATED_SAFE_MODE"]) expect((await browser.call("blue-actions", { action })).response.status).toBe(200);
-    expect((await browser.call("blue-actions", { action: "VERIFY_STABLE", timestamps: [] })).data.error.code).toBe("VERIFICATION_REQUIRED");
-    expect((await browser.call("blue-actions", { action: "VERIFY_STABLE", timestamps: ["2026-11-02T01:02:00Z", "2026-11-02T01:02:10Z", "2026-11-02T01:02:20Z"] })).response.status).toBe(200);
-    expect((await browser.call("blue-actions", { action: "RESTORE_SIMULATED_MONITORING" })).response.status).toBe(200);
-    const completed = await browser.call("report", { track: "blue", report });
+    const hint = await browser.call("blue-hints", { action: "ACKNOWLEDGE_ANOMALY", index: 0 });
+    expect(hint.data.hint).toContain("0.20");
+    const check = await browser.call("blue-check", { action: "ACKNOWLEDGE_ANOMALY", answers: { ...blueAnswers.ACKNOWLEDGE_ANOMALY, start: "14:01" } });
+    expect(check.data.result.ok).toBe(false);
+    expect(check.data.session.blueState).toBe("anomaly_detected");
+    for (const action of ["ACKNOWLEDGE_ANOMALY", "ISOLATE_TRAINING_FEED", "ENTER_SIMULATED_SAFE_MODE"] as const) expect((await browser.call("blue-actions", { action, answers: blueAnswers[action] })).response.status).toBe(200);
+    expect((await browser.call("blue-actions", { action: "VERIFY_STABLE", answers: { ...blueAnswers.VERIFY_STABLE, confirmed: ["14:10", "14:11"] } })).data.error.code).toBe("VERIFICATION_REQUIRED");
+    expect((await browser.call("blue-actions", { action: "VERIFY_STABLE", answers: blueAnswers.VERIFY_STABLE })).response.status).toBe(200);
+    expect((await browser.call("blue-actions", { action: "RESTORE_SIMULATED_MONITORING", answers: blueAnswers.RESTORE_SIMULATED_MONITORING })).response.status).toBe(200);
+    const completed = await browser.call("report", { track: "blue", report: blueReport });
     expect(completed.data.session).toMatchObject({ complete: true, score: { total: 100 } });
     const restored = await browser.call("restore", {}, "current");
     expect(restored.data.session).toEqual(completed.data.session);

@@ -30,7 +30,9 @@ Function内はリクエストごとのメモリ内SQLiteです。前回Function�
 | POST /api/lab-sessions/{sessionId}/hints | stageId, index(0〜2) | 進捗に応じた考え方・構文・実行例を生成し、利用を記録 |
 | POST /api/lab-sessions/{sessionId}/flags | stageId, flag, evidence | FLAGと根拠を検証 |
 | POST /api/lab-sessions/{sessionId}/stage5-evidence | sourceIp, firstEventTimestampUtc | 正答時のみStage 05 FLAGを払い出す |
-| POST /api/lab-sessions/{sessionId}/blue-actions | action, timestamps?, explanation? | 模擬状態を遷移 |
+| POST /api/lab-sessions/{sessionId}/blue-check | action, answers | 現在のSTEPの判断を判定(状態は変えない)。不適切な選択は回数を記録 |
+| POST /api/lab-sessions/{sessionId}/blue-hints | action, index(0〜2) | 現在のSTEPの「考え方・書き方・実行例」を返し、使った段階を記録 |
+| POST /api/lab-sessions/{sessionId}/blue-actions | action, answers | StepRule.canAdvance を満たした場合だけ模擬状態を遷移 |
 | POST /api/lab-sessions/{sessionId}/report | track, report | 調査／防御レポート保存・項目充足の採点 |
 | POST /api/lab-sessions/{sessionId}/reset | — | ブラウザの現セッションを新規ID・FLAGへ切替 |
 
@@ -54,14 +56,16 @@ Function内はリクエストごとのメモリ内SQLiteです。前回Function�
 
 | 操作 | 遷移 | 必要な証拠 |
 | --- | --- | --- |
-| ACKNOWLEDGE_ANOMALY | anomaly_detected → investigating | 最初の3連続不一致のUTC時刻と説明 |
-| ISOLATE_TRAINING_FEED | investigating → input_isolated | 前段階完了 |
-| ENTER_SIMULATED_SAFE_MODE | input_isolated → safe_mode | 前段階完了 |
-| VERIFY_STABLE | safe_mode → verified | 復旧教材の3連続正常のUTC時刻 |
-| RESTORE_SIMULATED_MONITORING | verified → recovered | 正常性確認完了 |
+| ACKNOWLEDGE_ANOMALY | anomaly_detected → investigating | 連続超過の開始(14:03)・確定(14:05)、単発を除外した理由 |
+| ISOLATE_TRAINING_FEED | investigating → input_isolated | PLC-03 / CL2_DOSE_SP、原因候補(承認外の設定変更・表示側の停滞)、操作ログの引用、隔離の判断 |
+| ENTER_SIMULATED_SAFE_MODE | input_isolated → safe_mode | 適切な4対応をすべて選び、不適切な対応を選ばない |
+| VERIFY_STABLE | safe_mode → verified | 承認つきでベースラインへ戻す・maint_tmp無効化・復旧データへ切替・3回連続の正常確認・現場手分析 |
+| RESTORE_SIMULATED_MONITORING | verified → recovered | AUTOへ戻す・隔離解除・復旧後の比較監視 |
+
+判定ルールは `src/lib/scenarios/blue-steps.ts` の `StepRule` に集約し、画面とサーバーが同じ定義を使います。数値は `src/lib/scenarios/incident.ts` の `INCIDENT` に集約しています。
 
 不正順序は`INVALID_STATE_TRANSITION`、正常性の根拠不足は`VERIFICATION_REQUIRED`として状態を変えません。これらは固定された架空教材の検証で、実設備の安全確認ではありません。
 
-レポート項目は`observations`、`evidence`、`timeline`、`improvements`で、それぞれ10〜4000文字です。Red FLAG40、調査レポート10、Blue操作42、検知根拠と防御レポート8の合計100点です。レポート本文の品質評価は講師確認が必要です。
+調査レポート項目は`observations`、`evidence`、`timeline`、`improvements`、防御レポートはこれに`impact`(影響範囲)を加えた5項目で、それぞれ10〜4000文字です。Red FLAG40、調査レポート10、Blue操作42(STEP 01〜04 各9点・STEP 05 6点)、検知根拠と防御レポート8の合計100点です。Blue操作はSTEP内で減点します(STEP 02・03の不適切な選択 −1/回、ヒント「書き方」−1・「実行例」−2、下限は各STEP配点の半分)。レポート本文の品質評価は講師確認が必要です。
 
 24時間の期限、ヒント・操作の直近100件の履歴、各課題の1分10試行を保持します。開始制限もブラウザのCookie単位で1分10回です。未提出の入力途中テキストは保存しません。履歴にFLAG入力値は保存しません。

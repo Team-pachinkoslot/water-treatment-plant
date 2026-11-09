@@ -12,11 +12,11 @@ const descriptions: Record<TerminalScene, { title: string; target: string; opera
   filesystem: { title: "ファイルと権限の調査", target: "Linux教材", operation: "場所・所有者・権限・本文を読む", result: "読み取り専用の証拠を収集" },
   logs: { title: "ログの証拠を絞り込む", target: "アクセスログ", operation: "記録を読み、文字列で抽出", result: "送信元と最初のUTC時刻を照合" },
   blocked: { title: "入力を確認", target: "入力チェック", operation: "書き方・対象・許可範囲を確認", result: "模擬状態は変更していません" },
-  detect: { title: "監視値の不一致を検知", target: "HMIと独立モデル", operation: "表示値と推定値を比較", result: "3連続の差を証拠として確認" },
-  isolate: { title: "疑わしい入力を隔離", target: "訓練データ入力", operation: "モデル内の入力経路を切り離す", result: "信頼できない表示入力を隔離" },
-  "safe-mode": { title: "安全側の判断へ", target: "模擬監視モデル", operation: "表示を要確認として扱う", result: "復旧条件を満たすまで保留" },
-  verify: { title: "正常性を検証", target: "復旧サンプル", operation: "3連続の一致を照合", result: "模擬復旧の条件を確認" },
-  recover: { title: "模擬監視を復旧", target: "模擬監視モデル", operation: "検証後に監視状態を戻す", result: "演習上の正常監視へ復帰" },
+  detect: { title: "残留塩素の乖離を検知", target: "HMIと独立モデル", operation: "監視表示と推定値を比較", result: "0.20 mg/L超の差が3連続と確認" },
+  isolate: { title: "疑わしい表示入力を隔離", target: "表示用データ入力", operation: "信頼できない入力経路を切り離す", result: "監視表示の入力を隔離" },
+  "safe-mode": { title: "安全側(手動運転)へ", target: "塩素注入(PLC-03)", operation: "MANで安全な固定注入率に", result: "水質を守りつつ復旧条件を待つ" },
+  verify: { title: "正常性を検証", target: "復旧サンプル", operation: "差が閾値以内を3連続照合", result: "模擬復旧の条件を確認" },
+  recover: { title: "自動運転へ復旧", target: "模擬監視モデル", operation: "検証後に監視状態を戻す", result: "演習上の正常監視(AUTO)へ復帰" },
 };
 export function AttackVisualization({ scene = "idle", phase = "complete", title, explanation, sequence = 0 }: { scene?: TerminalScene; phase?: "sending" | "processing" | "complete" | "error"; title?: string; explanation?: string; sequence?: number }) {
   const id = useId().replace(/:/g, "");

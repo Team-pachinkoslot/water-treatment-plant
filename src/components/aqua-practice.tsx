@@ -2,15 +2,29 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { aquaScenario } from "@/lib/scenarios/aqua";
-import { AquaTelemetry } from "./aqua-telemetry";
 import { AquaTerminal } from "./aqua-terminal";
-import { AttackVisualization } from "./attack-visualization";
-import { initialTerminal, type CommandHint, type TerminalResult, type TerminalScene } from "@/lib/scenarios/terminal-lessons";
+import { BlueTeam, type BlueCall } from "./blue-team";
+import { initialTerminal, type CommandHint, type TerminalResult } from "@/lib/scenarios/terminal-lessons";
 import type { TelemetrySample } from "@/lib/scenarios/telemetry.server";
+import { INCIDENT } from "@/lib/scenarios/incident";
+import { BLUE_SCORING, chlorineScenario, createStepRules } from "@/lib/scenarios/blue-steps";
 import type { ReportFields, SessionView } from "@/lib/scenarios/session-types";
 
-const emptyReport = (): ReportFields => ({ observations: "", evidence: "", timeline: "", improvements: "" });
-const reportLabels: Record<keyof ReportFields, string> = { observations: "観測結果・判断", evidence: "証拠・根拠", timeline: "UTCの時系列・実施手順", improvements: "改善案・復旧条件・残存リスク" };
+const emptyReport = (track: "red" | "blue"): ReportFields => ({ observations: "", evidence: "", timeline: "", improvements: "", ...(track === "blue" ? { impact: "" } : {}) });
+type ReportKey = keyof ReportFields;
+// 防御レポートは §5 の5項目。表示順はこのオブジェクトのキー順。
+const reportLabels = (track: "red" | "blue"): Partial<Record<ReportKey, string>> => track === "blue"
+  ? { observations: "異常の根拠", impact: "影響範囲", evidence: "隔離と安全モードの判断理由", timeline: "復旧確認", improvements: "再発防止" }
+  : { observations: "観測結果・判断", evidence: "証拠・根拠", timeline: "UTCの時系列・実施手順", improvements: "改善案・復旧条件・残存リスク" };
+const reportGuides: Partial<Record<ReportKey, string>> = {
+  observations: `トレンド、差、連続回数(${INCIDENT.consecutiveRequired}回)、単発を除外した理由`,
+  impact: `関わる設備(${INCIDENT.changedPlc}、塩素注入、浄水池出口)と水質項目。出口残留塩素の最小値(推定${INCIDENT.minEstimatedResidual.toFixed(2)} ${INCIDENT.unit})と、水質基準相当(${INCIDENT.referenceResidual.toFixed(2)} ${INCIDENT.unit})との関係`,
+  evidence: "何を根拠に、なぜ隔離と安全モードの対応を選んだか",
+  timeline: `${INCIDENT.consecutiveRequired}回連続の正常確認、現場手分析の結果`,
+  improvements: "設定変更の二人承認、変更管理票、不要アカウントの削除、遠隔からの設定変更の制限、ネットワークの分離(ゾーニング)、独立した別系統との常時比較、ログ監視アラート",
+};
+const reportKeys = (track: "red" | "blue") => Object.keys(reportLabels(track)) as ReportKey[];
+const stepTitles = createStepRules(chlorineScenario, { trend: [], recovery: [] });
 type ApiData = { session?: SessionView; cloudState?: string; flag?: string; result?: TerminalResult; error?: { code: string; message: string } } & Partial<CommandHint>;
 const STORAGE_KEY = "aqua-cloud-exercise-v1";
 function savedState(): string | null {
@@ -44,12 +58,12 @@ function bootstrap(autoStart: boolean) {
   return bootstrapRequest;
 }
 function ReportForm({ track, saved, enabled, busy, onSave }: { track: "red" | "blue"; saved: ReportFields | null; enabled: boolean; busy: boolean; onSave: (report: ReportFields) => void }) {
-  const [report, setReport] = useState<ReportFields>(saved ?? emptyReport());
-  return <form className="panel aqua-report practice-report" onSubmit={e => { e.preventDefault(); onSave(report); }}>
+  const [report, setReport] = useState<ReportFields>(saved ?? emptyReport(track));
+  return <form id={`${track}-report`} className="panel aqua-report practice-report" onSubmit={e => { e.preventDefault(); onSave(report); }}>
     <h2>{track === "red" ? "調査レポート / Red Team" : "防御レポート / Blue Team"}</h2>
     <p>{saved ? "提出済みです。内容を更新して再提出できます。" : "各項目10文字以上で記録してください。保存は提出ボタンを押した時点で行います。"}</p>
     <p>演習の採点は入力項目の充足と検証済みの操作を評価します。文章の妥当性・証拠の品質は講師の確認が必要です。</p>
-    <fieldset disabled={!enabled || busy}>{(Object.keys(reportLabels) as (keyof ReportFields)[]).map(key => <label key={key} htmlFor={`${track}-${key}`}>{reportLabels[key]}<textarea id={`${track}-${key}`} value={report[key]} minLength={10} maxLength={4000} required rows={3} onChange={e => setReport({ ...report, [key]: e.target.value })} /></label>)}<button className="button primary" disabled={!enabled || busy} type="submit">{track === "red" ? "調査" : "防御"}レポートを提出</button></fieldset>
+    <fieldset disabled={!enabled || busy}>{reportKeys(track).map(key => <label key={key} htmlFor={`${track}-${key}`}>{reportLabels(track)[key]}{track === "blue" && <small className="report-guide">{reportGuides[key]}</small>}<textarea id={`${track}-${key}`} value={report[key] ?? ""} minLength={10} maxLength={4000} required rows={3} onChange={e => setReport({ ...report, [key]: e.target.value })} /></label>)}<button className="button primary" disabled={!enabled || busy} type="submit">{track === "red" ? "調査" : "防御"}レポートを提出</button></fieldset>
     {!enabled && <p>{track === "red" ? "5つのFLAG提出後に利用できます。" : "模擬復旧後に利用できます。"}</p>}
   </form>;
 }
@@ -67,9 +81,6 @@ export function AquaPractice({ enabled, autoStart = false, initialTrack = "red",
   const [permission, setPermission] = useState("");
   const [sourceIp, setSourceIp] = useState("");
   const [firstTime, setFirstTime] = useState("");
-  const [anomalyTimestamps, setAnomalyTimestamps] = useState("");
-  const [recoveryTimestamps, setRecoveryTimestamps] = useState("");
-  const [explanation, setExplanation] = useState("");
   const [celebration, setCelebration] = useState<{ id: number; title: string; count: number } | null>(null);
 
   useEffect(() => {
@@ -101,7 +112,7 @@ export function AquaPractice({ enabled, autoStart = false, initialTrack = "red",
   }
   const path = session ? `/${session.id}` : "";
   function clearExercise() {
-    setSelectedStage(null); setFlag(""); setPorts(""); setRisk(""); setPermission(""); setSourceIp(""); setFirstTime(""); setAnomalyTimestamps(""); setRecoveryTimestamps(""); setExplanation(""); setTrack("red");
+    setSelectedStage(null); setFlag(""); setPorts(""); setRisk(""); setPermission(""); setSourceIp(""); setFirstTime(""); setTrack("red");
   }
   function saveReport(which: "red" | "blue", report: ReportFields) {
     void run(() => api(`${path}/report`, { track: which, report }), "レポートを保存しました。再読込しても進捗を引き継げます。");
@@ -127,9 +138,18 @@ export function AquaPractice({ enabled, autoStart = false, initialTrack = "red",
   const selectedId = selectedStage && (session?.completedStages.includes(selectedStage) || session?.nextStage === selectedStage) ? selectedStage : session?.nextStage ?? "S05";
   const stage = aquaScenario.redStages.find(s => s.id === selectedId)!;
   const activeStage = session?.nextStage === selectedId;
-  const defenseScenes: Record<SessionView["blueState"], TerminalScene> = { anomaly_detected: "detect", investigating: "detect", input_isolated: "isolate", safe_mode: "safe-mode", verified: "verify", recovered: "recover" };
   const blueEnabled = !!session && session.completedStages.length === 5 && !!session.reports.red;
-  const timestamps = (input: string) => input.split(/[\s,]+/).filter(Boolean);
+  // 防御パートの API 呼び出し。エラーは STEP パネル内に表示するため、ここでは返すだけ。
+  const blueCall: BlueCall = async (operation, payload) => {
+    setBusy(true); setError(""); setMessage("");
+    try {
+      const data = await api(`${path}/${operation}`, payload);
+      if (data.session) setSession(data.session);
+      if (operation === "blue-actions") setMessage("判断が条件を満たしました。演習状態を保存しました。");
+      return { data: data as Record<string, unknown> };
+    } catch (e) { return { error: e instanceof Error ? e.message : "処理に失敗しました。" }; }
+    finally { setBusy(false); }
+  };
 
   return <div className="page aqua-page practice-page">
     <Link className="back-link" href="/labs/water-treatment">← シナリオ概要に戻る</Link>
@@ -177,20 +197,16 @@ export function AquaPractice({ enabled, autoStart = false, initialTrack = "red",
       </>}
       {track === "blue" && <>
         {!blueEnabled && <div className="notice">5つのFLAGとRed Team調査レポートの提出後に操作できます。監視データは先に閲覧できます。</div>}
-        <section className="panel aqua-report"><h2>模擬監視の現在状態</h2><p>{session.blueState === "recovered" ? "模擬監視を復旧済み。防御レポートを提出してください。" : `状態：${session.blueState}。順番に証拠を確認し、対応します。`}</p><p>差が15パーセントポイントを超える状態が3回連続した場合を調査します。実設備の安全基準ではありません。</p></section>
-        <div className="blue-operation-layout"><AttackVisualization scene={defenseScenes[session.blueState]} sequence={session.events.length}/><section className="panel defense-state-card"><div className="eyebrow">SIMULATED MONITORING</div><h3>いまの表示と入力経路</h3><dl><div><dt>独立モデルの水位</dt><dd>{["verified", "recovered"].includes(session.blueState) ? recoverySamples.at(-1)?.model_level_pct : samples.at(-1)?.model_level_pct}%</dd></div><div><dt>HMIの表示</dt><dd>{["safe_mode", "input_isolated"].includes(session.blueState) ? "要確認" : `${["verified", "recovered"].includes(session.blueState) ? recoverySamples.at(-1)?.display_level_pct : samples.at(-1)?.display_level_pct}%`}</dd></div><div><dt>表示用の入力</dt><dd>{["input_isolated", "safe_mode", "verified"].includes(session.blueState) ? "隔離中" : session.blueState === "recovered" ? "模擬監視へ復帰" : "不一致を調査中"}</dd></div></dl><p>図と値は固定教材と演習状態を表しています。実際の水位や設備への操作ではありません。</p></section></div>
-        <AquaTelemetry samples={samples} />
-        <div className="practice-evidence panel"><h2>異常確認の根拠</h2><label htmlFor="anomaly-times">最初の3連続不一致のUTC時刻（ISO 8601・1行に1つ）<textarea id="anomaly-times" rows={3} value={anomalyTimestamps} onChange={e => setAnomalyTimestamps(e.target.value)} /></label><label htmlFor="anomaly-explanation">検知根拠（10文字以上）<textarea id="anomaly-explanation" minLength={10} maxLength={4000} value={explanation} onChange={e => setExplanation(e.target.value)} /></label></div>
-        <ol className="aqua-actions">{aquaScenario.blueActions.map((action,i) => <li className="panel" key={action.code}><div className="eyebrow">STEP 0{i + 1}</div><h3>{action.label}</h3><p className="aqua-state">{action.from} → {action.to}</p><button className="button primary" disabled={busy || !blueEnabled || session.blueState !== action.from} onClick={() => void run(() => api(`${path}/blue-actions`, { action: action.code, timestamps: action.code === "VERIFY_STABLE" ? timestamps(recoveryTimestamps) : timestamps(anomalyTimestamps), explanation }), `${action.label}：演習状態を保存しました。`)}>{action.label}</button></li>)}</ol>
-        {["safe_mode", "verified", "recovered"].includes(session.blueState) && <><AquaTelemetry samples={recoverySamples} recovery /><div className="panel practice-evidence"><label htmlFor="recovery-times">3連続で一致した復旧サンプルのUTC時刻（ISO 8601・1行に1つ）<textarea id="recovery-times" rows={3} value={recoveryTimestamps} onChange={e => setRecoveryTimestamps(e.target.value)} /></label><p>復旧サンプルを確認してから「正常性を確認」を押してください。</p></div></>}
-        <ReportForm key={`${session.id}-blue`} track="blue" saved={session.reports.blue} enabled={session.blueState === "recovered"} busy={busy} onSave={report => saveReport("blue", report)} />
+        <BlueTeam key={session.id} session={session} enabled={blueEnabled} busy={busy} samples={samples} recoverySamples={recoverySamples} call={blueCall} />
+        <ReportForm key={session.id + "-blue"} track="blue" saved={session.reports.blue} enabled={session.blueState === "recovered"} busy={busy} onSave={report => saveReport("blue", report)} />
         {session.complete && <button className="button primary practice-next" onClick={() => setTrack("results")}>結果を見る →</button>}
       </>}
       {track === "results" && <>
-        <section className="panel aqua-report"><h2>{session.complete ? "ブラウザ演習を完了しました" : "途中経過"}</h2><div className="practice-score">{session.score.total}<small> / 100</small></div><dl className="practice-score-details"><div><dt>Red Team / 5FLAG</dt><dd>{session.score.redFlags} / 40</dd></div><div><dt>調査レポート項目の充足</dt><dd>{session.score.redReport} / 10</dd></div><div><dt>Blue Team / 対応操作</dt><dd>{session.score.blueActions} / 42</dd></div><div><dt>検知根拠・防御レポート項目の充足</dt><dd>{session.score.blueEvidence} / 8</dd></div></dl><p>これはブラウザ内シミュレーターの演習結果です。実VMの操作技能や文章の品質を認定するものではありません。</p>
+        <section className="panel aqua-report"><h2>{session.complete ? "ブラウザ演習を完了しました" : "途中経過"}</h2><div className="practice-score">{session.score.total}<small> / 100</small></div><dl className="practice-score-details"><div><dt>Red Team / 5FLAG</dt><dd>{session.score.redFlags} / 40</dd></div><div><dt>調査レポート項目の充足</dt><dd>{session.score.redReport} / 10</dd></div><div><dt>Blue Team / 対応操作</dt><dd>{session.score.blueActions} / {BLUE_SCORING.actionsTotal}</dd></div><div><dt>検知根拠・防御レポート項目の充足</dt><dd>{session.score.blueEvidence} / {BLUE_SCORING.reportPoints}</dd></div></dl>
+          <div className="aqua-table-scroll" tabIndex={0} role="region" aria-label="Blue Team STEP別の得点"><table className="hmi-table"><caption>Blue Team STEP別の得点(減点: 不適切な選択 −{BLUE_SCORING.mistakePenalty}/回、ヒント「書き方」−{BLUE_SCORING.hintPenalty[2]}・「実行例」−{BLUE_SCORING.hintPenalty[3]}、下限は配点の半分)</caption><thead><tr><th>STEP</th><th>得点</th><th>不適切な選択</th><th>ヒント</th></tr></thead><tbody>{stepTitles.map((r, i) => { const p = session.blueProgress?.steps[r.code]; return <tr key={r.code}><td>0{i + 1} {r.title}</td><td>{p?.points ?? 0} / {r.points}</td><td>{r.penalizeMistakes ? `${p?.mistakes ?? 0}回` : "—"}</td><td>{["未使用", "考え方", "書き方", "実行例"][p?.hintLevel ?? 0]}</td></tr>; })}</tbody></table></div><p>これはブラウザ内シミュレーターの演習結果です。実VMの操作技能や文章の品質を認定するものではありません。</p>
           <button className="button secondary" onClick={() => { const url = URL.createObjectURL(new Blob([JSON.stringify(session, null, 2)], { type: "application/json" })); const a = document.createElement("a"); a.href = url; a.download = `aqua-test-${session.id}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }}>結果とレポートをJSONで保存</button>
         </section>
-        {(["red", "blue"] as const).map(which => <section className="panel aqua-report" key={which}><h2>{which === "red" ? "調査" : "防御"}レポート {session.reports[which] ? "提出済み" : "未提出"}</h2>{session.reports[which] && (Object.keys(reportLabels) as (keyof ReportFields)[]).map(key => <div key={key}><h3>{reportLabels[key]}</h3><p className="practice-report-text">{session.reports[which]![key]}</p></div>)}</section>)}
+        {(["red", "blue"] as const).map(which => <section className="panel aqua-report" key={which}><h2>{which === "red" ? "調査" : "防御"}レポート {session.reports[which] ? "提出済み" : "未提出"}</h2>{session.reports[which] && reportKeys(which).map(key => <div key={key}><h3>{reportLabels(which)[key]}</h3><p className="practice-report-text">{session.reports[which]![key]}</p></div>)}</section>)}
         <section className="panel aqua-report"><h2>操作履歴（直近100件）</h2><p>FLAG入力値・資格情報は履歴に記録しません。</p><ol className="practice-audit">{session.events.map((event,i) => <li key={`${event.at}-${i}`}><time>{event.at}</time> {event.type} {event.stageId}</li>)}</ol></section>
       </>}
     </>}

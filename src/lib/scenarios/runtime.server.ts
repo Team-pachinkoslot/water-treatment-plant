@@ -1,7 +1,7 @@
 import type { TerminalResult, CommandHint } from "./terminal-lessons";
 import { env } from "node:process";
 import type { BlueActionCode } from "./aqua";
-import type { SessionAccess, SessionView, ReportFields, BlueEvidence, MaterialView } from "./session-types";
+import type { SessionAccess, SessionView, ReportFields, BlueAnswers, BlueCheckResult, BlueHint, MaterialView } from "./session-types";
 import { SimulatorScenarioRuntime } from "./simulator.server";
 import { ScenarioRuntimeError } from "./errors.server";
 export { ScenarioRuntimeError } from "./errors.server";
@@ -18,7 +18,9 @@ export interface ScenarioRuntimeAdapter {
   submitFlag(access: SessionAccess, stage: string, flag: string, evidence?: Record<string, string>): Promise<SessionView>;
   stage5Evidence(access: SessionAccess, answer: { sourceIp: string; firstEventTimestampUtc: string }): Promise<{ flag: string }>;
   submitReport(access: SessionAccess, track: "red" | "blue", report: ReportFields): Promise<SessionView>;
-  performBlueAction(access: SessionAccess, action: BlueActionCode, evidence?: BlueEvidence): Promise<SessionView>;
+  performBlueAction(access: SessionAccess, action: BlueActionCode, answers?: BlueAnswers): Promise<SessionView>;
+  checkBlueStep(access: SessionAccess, action: BlueActionCode, answers?: BlueAnswers): Promise<{ result: BlueCheckResult; session: SessionView }>;
+  getBlueHint(access: SessionAccess, action: BlueActionCode, index: number): Promise<BlueHint>;
 }
 export class DisabledScenarioRuntime implements ScenarioRuntimeAdapter {
   readonly mode = "disabled" as const;
@@ -32,6 +34,8 @@ export class DisabledScenarioRuntime implements ScenarioRuntimeAdapter {
   async stage5Evidence(): Promise<never> { throw new ScenarioRuntimeError(); }
   async submitReport(): Promise<never> { throw new ScenarioRuntimeError(); }
   async performBlueAction(): Promise<never> { throw new ScenarioRuntimeError(); }
+  async checkBlueStep(): Promise<never> { throw new ScenarioRuntimeError(); }
+  async getBlueHint(): Promise<never> { throw new ScenarioRuntimeError(); }
 }
 export function getScenarioMode(mode = env.LAB_RUNTIME_MODE): ScenarioMode {
   return mode === undefined || mode === "" || mode === "simulator" ? "simulator" : "disabled";

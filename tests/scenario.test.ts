@@ -31,15 +31,17 @@ describe("AQUA learner data", () => {
     for (let i = 1; i < actions.length; i++) expect(actions[i].from).toBe(actions[i-1].to);
     expect(actions.at(-1)?.to).toBe("recovered");
   });
-  it("reads the supplied mismatch and recovery series without simulating successful recovery", () => {
+  it("reads the chlorine mismatch and recovery series without simulating successful recovery", () => {
     const samples = readTelemetry();
-    expect(samples).toHaveLength(5);
-    expect(samples[0].display_level_pct).toBe(samples[0].model_level_pct);
+    expect(samples).toHaveLength(7);
+    expect(Math.abs(samples[0].display_cl_mgl - samples[0].model_cl_mgl)).toBeLessThanOrEqual(0.2);
     const alert = readTrainingAlert();
-    expect(alert.trigger).toEqual({ metric: "absolute_percent_point_difference", threshold: 15, consecutiveSamples: 3 });
-    expect(samples.slice(1,4).every(s => Math.abs(s.display_level_pct - s.model_level_pct) > alert.trigger.threshold)).toBe(true);
+    expect(alert.trigger).toEqual({ metric: "absolute_mgl_difference", threshold: 0.2, consecutiveSamples: 3 });
+    // 14:03/14:04/14:05 の3連続が閾値を超え、14:01 の単発は連続しない。
+    expect(samples.slice(3,6).every(s => Math.abs(s.display_cl_mgl - s.model_cl_mgl) > alert.trigger.threshold)).toBe(true);
+    expect(Math.abs(samples[2].display_cl_mgl - samples[2].model_cl_mgl)).toBeLessThanOrEqual(alert.trigger.threshold);
     const recovery = readTelemetry(true);
     expect(recovery).toHaveLength(3);
-    expect(recovery.every(s => s.display_level_pct === s.model_level_pct && s.mode === "safe_mode" && s.input_feed === "isolated")).toBe(true);
+    expect(recovery.every(s => Math.abs(s.display_cl_mgl - s.model_cl_mgl) <= alert.trigger.threshold && s.mode === "safe_mode" && s.input_feed === "isolated")).toBe(true);
   });
 });

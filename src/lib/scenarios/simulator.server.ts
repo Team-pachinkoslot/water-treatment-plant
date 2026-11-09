@@ -7,7 +7,8 @@ import { dirname, resolve, join } from "node:path";
 import { aquaScenario, type BlueActionCode, type BlueState } from "./aqua";
 import { LabError } from "./errors.server";
 import { readTelemetry } from "./telemetry.server";
-import type { SessionAccess, SessionView, ReportFields, BlueEvidence, MaterialView } from "./session-types";
+import { BLUE_SCORING, chlorineScenario, createStepRules, stepScore, toTrendRows, type StepRule } from "./blue-steps";
+import type { SessionAccess, SessionView, ReportFields, BlueAnswers, BlueCheckResult, BlueHint, BlueProgress, MaterialView } from "./session-types";
 import type { ScenarioRuntimeAdapter } from "./runtime.server";
 
 type StageId = (typeof aquaScenario.redStages)[number]["id"];
@@ -22,6 +23,7 @@ interface StoredSession {
   attempts: Record<string, { count: number; since: number }>;
   blueState: BlueState;
   blueEvidenceAccepted: boolean;
+  blue?: { startedAt?: string; steps: Partial<Record<BlueActionCode, { mistakes: number; hintLevel: number }>> };
   reports: { red: ReportFields | null; blue: ReportFields | null };
   events: SessionView["events"];
 }
@@ -47,30 +49,31 @@ function attempt(s: StoredSession, key: string, limit = 10) {
   if (bucket.count >= limit) fail("RATE_LIMITED", "試行回数の上限です。1分後に再試行してください。", 429);
   bucket.count++;
 }
-function reportComplete(r: ReportFields | null): boolean {
-  return !!r && [r.observations, r.evidence, r.timeline, r.improvements].every(v => typeof v === "string" && v.trim().length >= 10 && v.length <= 4000);
+const fieldOk = (v: unknown) => typeof v === "string" && v.trim().length >= 10 && v.length <= 4000;
+function reportComplete(r: ReportFields | null, track: "red" | "blue" = "red"): boolean {
+  return !!r && [r.observations, r.evidence, r.timeline, r.improvements, ...(track === "blue" ? [r.impact] : [])].every(fieldOk);
+}
+// 防御パートの StepRule。固定教材(fixtures/blue)から一度だけ組み立てる。
+let rulesCache: readonly StepRule[] | undefined;
+function blueRules() {
+  return rulesCache ??= createStepRules(chlorineScenario, { trend: toTrendRows(readTelemetry()), recovery: toTrendRows(readTelemetry(true)) });
+}
+const blueOrder: BlueState[] = ["anomaly_detected", "investigating", "input_isolated", "safe_mode", "verified", "recovered"];
+function blueProgress(s: StoredSession): BlueProgress {
+  const reached = blueOrder.indexOf(s.blueState);
+  const steps = Object.fromEntries(blueRules().map(rule => {
+    const rec = s.blue?.steps[rule.code] ?? { mistakes: 0, hintLevel: 0 };
+    const completed = blueOrder.indexOf(rule.to) <= reached;
+    return [rule.code, { ...rec, completed, max: rule.points, points: completed ? stepScore(rule, rec) : 0 }];
+  })) as BlueProgress["steps"];
+  return { startedAt: s.blue?.startedAt ?? null, steps };
 }
 function view(s: StoredSession): SessionView {
-  const actionPoints: Record<BlueState, number> = { anomaly_detected: 0, investigating: 12, input_isolated: 24, safe_mode: 34, verified: 42, recovered: 42 };
-  const score = { redFlags: s.completedStages.length * 8, redReport: reportComplete(s.reports.red) ? 10 : 0, blueActions: actionPoints[s.blueState], blueEvidence: s.blueEvidenceAccepted && reportComplete(s.reports.blue) ? 8 : 0, total: 0 };
+  const progress = blueProgress(s);
+  const blueActions = Object.values(progress.steps).reduce((sum, step) => sum + step.points, 0);
+  const score = { redFlags: s.completedStages.length * 8, redReport: reportComplete(s.reports.red) ? 10 : 0, blueActions, blueEvidence: s.blueEvidenceAccepted && reportComplete(s.reports.blue, "blue") ? BLUE_SCORING.reportPoints : 0, total: 0 };
   score.total = score.redFlags + score.redReport + score.blueActions + score.blueEvidence;
-  return { id: s.id, labId: "water-01", mode: "simulator", expiresAt: s.expiresAt, completedStages: s.completedStages, nextStage: nextStage(s), terminal: s.terminal ?? initialTerminal(), blueState: s.blueState, blueEvidenceAccepted: s.blueEvidenceAccepted, reports: s.reports, score, complete: s.completedStages.length === 5 && reportComplete(s.reports.red) && s.blueState === "recovered" && reportComplete(s.reports.blue), events: s.events };
-}
-function matchingTimes(actual: string[] | undefined, expected: string[]) {
-  return Array.isArray(actual) && actual.length === expected.length && actual.every((v, i) => typeof v === "string" && v === expected[i]);
-}
-function anomalyTimes(): string[] {
-  const samples = readTelemetry();
-  for (let i = 0; i <= samples.length - 3; i++) {
-    const run = samples.slice(i, i + 3);
-    if (run.every(s => Math.abs(s.display_level_pct - s.model_level_pct) > 15)) return run.map(s => s.timestamp);
-  }
-  return fail("FIXTURE_INVALID", "異常確認用データに不整合があります。", 500);
-}
-function recoveryTimes(): string[] {
-  const samples = readTelemetry(true);
-  if (samples.length < 3 || !samples.slice(0, 3).every(s => s.display_level_pct === s.model_level_pct && s.input_feed === "isolated" && s.mode === "safe_mode")) fail("VERIFICATION_REQUIRED", "正常性を確認できるサンプルがありません。", 409);
-  return samples.slice(0, 3).map(s => s.timestamp);
+  return { id: s.id, labId: "water-01", mode: "simulator", expiresAt: s.expiresAt, completedStages: s.completedStages, nextStage: nextStage(s), terminal: s.terminal ?? initialTerminal(), blueState: s.blueState, blueEvidenceAccepted: s.blueEvidenceAccepted, blueProgress: progress, reports: s.reports, score, complete: s.completedStages.length === 5 && reportComplete(s.reports.red) && s.blueState === "recovered" && reportComplete(s.reports.blue, "blue"), events: s.events };
 }
 function logs() { return readFileSync(join(process.cwd(), "fixtures/red/logs/aqua-access.log"), "utf8").trim(); }
 function stage5Answer() {
@@ -236,25 +239,63 @@ export class SimulatorScenarioRuntime implements ScenarioRuntimeAdapter {
   async submitReport(access: SessionAccess, track: "red" | "blue", report: ReportFields) {
     return this.transaction(access, s => {
       if (!["red", "blue"].includes(track)) fail("INVALID_TRACK", "トラックを選び直してください。");
-      if (!reportComplete(report)) fail("REPORT_INCOMPLETE", "各項目を10文字以上4000文字以内で記入してください。");
+      if (!reportComplete(report, track)) fail("REPORT_INCOMPLETE", "各項目を10文字以上4000文字以内で記入してください。");
       if (s.completedStages.length !== 5 || (track === "blue" && s.blueState !== "recovered")) fail("REPORT_LOCKED", "必要な演習手順を先に完了してください。", 409);
       // Copy only the documented fields to persistence and response.
-      s.reports[track] = { observations: report.observations.trim(), evidence: report.evidence.trim(), timeline: report.timeline.trim(), improvements: report.improvements.trim() };
+      s.reports[track] = { observations: report.observations.trim(), evidence: report.evidence.trim(), timeline: report.timeline.trim(), improvements: report.improvements.trim(), ...(track === "blue" ? { impact: report.impact!.trim() } : {}) };
       record(s, `${track.toUpperCase()}_REPORT_SAVED`);
       return view(s);
     });
   }
-  async performBlueAction(access: SessionAccess, action: BlueActionCode, evidence: BlueEvidence = {}) {
+  // 防御パート共通: 解放条件・現在の STEP・判断の評価と誤選択の記録。
+  private blueStep(s: StoredSession, action: BlueActionCode) {
+    if (s.completedStages.length !== 5 || !s.reports.red) fail("BLUE_LOCKED", "5つのFLAGと調査レポートを先に提出してください。", 409);
+    const rule = blueRules().find(r => r.code === action);
+    if (!rule) return fail("INVALID_STATE_TRANSITION", "対応手順が見つかりません。", 409);
+    if (rule.from !== s.blueState) fail("INVALID_STATE_TRANSITION", "対応手順の順番が正しくありません。", 409);
+    s.blue ??= { steps: {} };
+    s.blue.startedAt ??= new Date().toISOString();
+    return rule;
+  }
+  private judgeBlue(s: StoredSession, rule: StepRule, answers: BlueAnswers) {
+    attempt(s, `blue-${rule.code}`, 20);
+    const result = rule.evaluate(answers);
+    if (!result.ok && result.inappropriate) {
+      const rec = s.blue!.steps[rule.code] ??= { mistakes: 0, hintLevel: 0 };
+      rec.mistakes++;
+    }
+    return result;
+  }
+  async checkBlueStep(access: SessionAccess, action: BlueActionCode, answers: BlueAnswers = {}): Promise<{ result: BlueCheckResult; session: SessionView }> {
     return this.transaction(access, s => {
-      if (s.completedStages.length !== 5 || !s.reports.red) fail("BLUE_LOCKED", "5つのFLAGと調査レポートを先に提出してください。", 409);
-      const transition = aquaScenario.blueActions.find(a => a.code === action);
-      if (!transition || transition.from !== s.blueState) fail("INVALID_STATE_TRANSITION", "対応手順の順番が正しくありません。", 409);
-      if (action === "ACKNOWLEDGE_ANOMALY") {
-        if (!matchingTimes(evidence.timestamps, anomalyTimes()) || typeof evidence.explanation !== "string" || evidence.explanation.trim().length < 10) fail("EVIDENCE_REQUIRED", "3連続の不一致のUTC時刻と検知根拠を入力してください。");
-        s.blueEvidenceAccepted = true;
+      const rule = this.blueStep(s, action);
+      const { ok, feedback } = this.judgeBlue(s, rule, answers);
+      record(s, ok ? "BLUE_CHECK_PASSED" : "BLUE_CHECK_REJECTED", rule.code);
+      return { result: { ok, feedback }, session: view(s) };
+    });
+  }
+  async getBlueHint(access: SessionAccess, action: BlueActionCode, index: number): Promise<BlueHint> {
+    return this.transaction(access, s => {
+      const rule = this.blueStep(s, action);
+      if (!Number.isInteger(index) || index < 0 || index > 2) fail("INVALID_HINT", "ヒントを選び直してください。");
+      const rec = s.blue!.steps[rule.code] ??= { mistakes: 0, hintLevel: 0 };
+      rec.hintLevel = Math.max(rec.hintLevel, index + 1);
+      record(s, `BLUE_HINT_${index + 1}_VIEWED`, rule.code);
+      return { hint: rule.hints[index], level: index, step: rule.title };
+    });
+  }
+  async performBlueAction(access: SessionAccess, action: BlueActionCode, answers: BlueAnswers = {}) {
+    return this.transaction(access, s => {
+      const rule = this.blueStep(s, action);
+      // 状態遷移は StepRule.canAdvance(evaluate().ok)を満たしたときだけ。誤りは理由つきで返す。
+      const result = this.judgeBlue(s, rule, answers);
+      if (!result.ok) {
+        const message = result.feedback.map(f => f.message).join(" ");
+        if (action === "VERIFY_STABLE") fail("VERIFICATION_REQUIRED", message, 409);
+        fail("EVIDENCE_REQUIRED", message);
       }
-      if (action === "VERIFY_STABLE" && !matchingTimes(evidence.timestamps, recoveryTimes())) fail("VERIFICATION_REQUIRED", "復旧サンプルの3連続正常時刻を確認してください。", 409);
-      s.blueState = transition.to; record(s, action);
+      if (action === "ACKNOWLEDGE_ANOMALY") s.blueEvidenceAccepted = true;
+      s.blueState = rule.to; record(s, action);
       return view(s);
     });
   }

@@ -63,6 +63,9 @@ async function body(request: Request): Promise<Record<string, unknown>> {
   } catch { return fail("INVALID_BODY", "入力を確認してください。"); }
 }
 function text(value: unknown) { return typeof value === "string" ? value : ""; }
+function answersObject(data: unknown): Record<string, unknown> {
+  return data && typeof data === "object" && !Array.isArray(data) ? data as Record<string, unknown> : {};
+}
 function evidenceFields(data: unknown): Record<string, string> {
   if (!data || typeof data !== "object" || Array.isArray(data)) return {};
   return Object.fromEntries(Object.entries(data).filter(([, value]) => typeof value === "string")) as Record<string, string>;
@@ -101,11 +104,16 @@ export async function handleSessionRequest(request: Request, id?: string, operat
     if (operation === "stage5-evidence") return ok(await runtime.stage5Evidence(access, { sourceIp: text(data.sourceIp), firstEventTimestampUtc: text(data.firstEventTimestampUtc) }));
     if (operation === "report") {
       const fields = evidenceFields(data.report);
-      const report: ReportFields = { observations: text(fields.observations), evidence: text(fields.evidence), timeline: text(fields.timeline), improvements: text(fields.improvements) };
+      const report: ReportFields = { observations: text(fields.observations), evidence: text(fields.evidence), timeline: text(fields.timeline), improvements: text(fields.improvements), ...(text(data.track) === "blue" ? { impact: text(fields.impact) } : {}) };
       return ok({ session: await runtime.submitReport(access, text(data.track) as "red" | "blue", report) });
     }
     if (operation === "blue-actions") {
-      return ok({ session: await runtime.performBlueAction(access, text(data.action) as BlueActionCode, { timestamps: Array.isArray(data.timestamps) && data.timestamps.every(v => typeof v === "string") ? data.timestamps as string[] : [], explanation: text(data.explanation) }) });
+      return ok({ session: await runtime.performBlueAction(access, text(data.action) as BlueActionCode, answersObject(data.answers)) });
+    }
+    if (operation === "blue-check") return ok(await runtime.checkBlueStep(access, text(data.action) as BlueActionCode, answersObject(data.answers)));
+    if (operation === "blue-hints") {
+      const hint = await runtime.getBlueHint(access, text(data.action) as BlueActionCode, typeof data.index === "number" ? data.index : -1);
+      return ok({ ...hint, session: await runtime.getSession(access) });
     }
     return fail("NOT_FOUND", "操作が見つかりません。", 404);
   } catch (error) {

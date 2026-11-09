@@ -3182,3 +3182,138 @@ main {
   .flag-celebration-burst { display: none; }
   .flag-celebration-check circle, .flag-celebration-check path { stroke-dashoffset: 0; }
 }
+
+/* === 塩素消毒設備 防御パート / HMI・用語辞典 === */
+.incident-memo { border-left: 3px solid var(--orange); background: #e4a1770d; padding: 18px 22px; margin: 24px 0; border-radius: 0 8px 8px 0; }
+.incident-memo .eyebrow { display: flex; align-items: center; gap: 6px; color: var(--orange); }
+.incident-memo p { color: var(--text); margin: 10px 0 0; line-height: 1.9; }
+.incident-memo .incident-memo-note { color: var(--muted); font-size: 12px; }
+.process-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 12px; border: 1px dashed var(--border); border-radius: 8px; padding: 12px 14px; margin: 16px 0; }
+.process-legend svg { color: var(--cyan); flex-shrink: 0; }
+.hmi-panel { padding: 24px; margin: 24px 0; }
+.hmi-panel .eyebrow { display: flex; align-items: center; gap: 6px; color: var(--cyan); }
+.hmi-panel h3 { font-size: 18px; margin: 7px 0 6px; }
+.hmi-panel > p { color: var(--muted); line-height: 1.9; }
+.hmi-status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-top: 14px; }
+.hmi-status-grid div { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+.hmi-status-grid dt { color: var(--muted); font-size: 11px; }
+.hmi-status-grid dd { display: flex; align-items: center; gap: 6px; margin: 6px 0 0; font-size: 15px; color: var(--cyan); }
+.hmi-status-grid dd.alarm-low { color: var(--orange); }
+.hmi-note { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 11px; margin-top: 14px; }
+.hmi-note svg { color: var(--cyan); flex-shrink: 0; }
+.plc-tag-table code, .op-log-table code { color: var(--cyan); }
+.plc-tag-table .row-correct td, .op-log-table .row-flagged td { background: #e4a1771a; }
+.plc-tag-table .row-wrong td { background: #8ab8bd12; }
+.row-exceeds td { color: var(--orange); }
+.choice-feedback { margin-top: 14px; padding: 12px 14px; border-left: 2px solid var(--border); font-size: 13px; line-height: 1.9; border-radius: 0 6px 6px 0; }
+.choice-feedback.is-correct { border-color: var(--cyan); background: #8ab8bd12; }
+.choice-feedback.is-wrong { border-color: var(--orange); background: #e4a17712; }
+.choice-feedback code { color: var(--cyan); }
+.safe-mode-choices { list-style: none; padding: 0; margin: 14px 0; display: grid; gap: 10px; }
+.safe-mode-choices li { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+.safe-mode-choices li.is-correct { border-color: #4d787e; background: #8ab8bd0d; }
+.safe-mode-choices li.is-wrong { border-color: #9a6a4f; background: #e4a1770d; }
+.safe-mode-choices label { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+.safe-mode-choices input { margin-top: 3px; }
+.safe-mode-choices .choice-reason { color: var(--muted); font-size: 12px; margin: 8px 0 0 26px; line-height: 1.8; }
+.legend-band { color: var(--muted) !important; }
+/* 用語辞典 */
+.glossary-term { position: relative; display: inline-block; }
+.glossary-trigger { color: inherit; border: 0; border-bottom: 1px dotted var(--cyan); padding: 0; font: inherit; line-height: inherit; }
+.glossary-trigger:hover, .glossary-trigger:focus-visible { color: var(--cyan); }
+.glossary-tooltip { position: absolute; left: 0; top: calc(100% + 6px); z-index: 30; width: max-content; max-width: 260px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 12px; line-height: 1.7; color: var(--text); box-shadow: 0 8px 24px #0009; }
+@media (max-width: 700px) { .glossary-tooltip { max-width: 220px; } .hmi-panel { padding: 20px 16px; } }
+
+/* ===== Blue Team: 塩素消毒シナリオ ===== */
+.practice-page input[type="checkbox"], .practice-page input[type="radio"] { width: auto; padding: 0; flex-shrink: 0; accent-color: var(--cyan); }
+.practice-page select { width: 100%; min-width: 0; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 10px; font: inherit; }
+.training-notice { margin: 0 0 16px; }
+.training-notice svg { color: var(--orange); }
+.blue-status { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 16px 20px; margin: 16px 0; }
+.blue-status small { display: block; color: var(--muted); font-size: 11px; }
+.blue-status strong { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 15px; overflow-wrap: anywhere; }
+.blue-status .mono { font-family: var(--mono); color: var(--cyan); }
+.blue-status .is-over { color: var(--orange); }
+.blue-process { padding: 20px; margin: 16px 0; }
+.blue-process .eyebrow { color: var(--cyan); }
+.blue-process h3 { margin: 6px 0 12px; font-size: 17px; }
+.blue-process-scroll { overflow-x: auto; }
+.blue-process svg { display: block; width: 100%; min-width: 640px; height: auto; }
+.bp-box { fill: #1b272c; stroke: #5d7f8c; stroke-width: 1.4; }
+.bp-model { stroke: var(--cyan); stroke-dasharray: 5 4; }
+.bp-label { fill: var(--text); font-size: 13px; }
+.bp-value { fill: var(--cyan); font: 11px var(--mono); }
+.bp-plc { fill: #d1ab88; font: 10px var(--mono); }
+.bp-note { fill: var(--muted); font-size: 11px; }
+.bp-pipe { stroke: #3b6970; stroke-width: 7; fill: none; }
+.bp-flow { stroke: #6bc9cc; stroke-width: 1.6; fill: none; }
+.bp-wire { stroke: #d19b68; stroke-width: 1.6; stroke-dasharray: 4 4; fill: none; }
+.bp-wire-model { stroke: var(--cyan); }
+.bp-wire.is-cut { stroke-dasharray: 2 10; opacity: .55; }
+.bp-cut rect { fill: #2a1f1a; stroke: var(--orange); }
+.bp-cut text { fill: var(--orange); font-size: 11px; }
+.bp-badge rect { fill: #1b272c; stroke: #5d7f8c; }
+.bp-badge text { fill: var(--text); font: 11px var(--mono); }
+.bp-badge.is-warn rect, .bp-badge.is-man rect { fill: #2a1f1a; stroke: var(--orange); }
+.bp-badge.is-warn text, .bp-badge.is-man text { fill: var(--orange); }
+.bp-badge.is-ok rect, .bp-badge.is-field rect { fill: #17292b; stroke: var(--cyan); }
+.bp-badge.is-ok text, .bp-badge.is-field text { fill: var(--cyan); }
+.state-investigating .bp-cl2 .bp-box, .state-safe_mode .bp-cl2 .bp-box, .state-input_isolated .bp-cl2 .bp-box { stroke: var(--orange); stroke-width: 2.4; }
+.state-verified .bp-cl2 .bp-box { stroke: var(--cyan); stroke-width: 2.4; }
+.cl2-blink { animation: cl2-blink 1.1s ease-in-out infinite; }
+@keyframes cl2-blink { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .cl2-blink { animation: none; } }
+.blue-process-caption { color: var(--text); font-size: 13px; line-height: 1.8; margin: 10px 0 0; }
+.blue-step-cards { margin: 24px 0 16px; }
+.blue-step-cards > li { padding: 0; border-left: 3px solid var(--border); }
+.blue-step-cards > li.status-active { border-left-color: var(--orange); }
+.blue-step-cards > li.status-done { border-left-color: var(--cyan); }
+.blue-step-cards > li.is-selected { outline: 1px solid var(--cyan); }
+.blue-card-button { display: block; width: 100%; text-align: left; padding: 20px 22px; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+.blue-card-meta { display: flex; flex-wrap: wrap; gap: 14px; color: var(--muted); font-size: 12px; margin: 6px 0; }
+.blue-card-meta span { display: inline-flex; align-items: center; gap: 5px; }
+.blue-step-detail { padding: 26px; margin: 16px 0 24px; }
+.blue-step-detail h2 { margin: 6px 0 12px; }
+.blue-step-detail h4 { margin: 18px 0 6px; font-size: 13px; color: var(--muted); }
+.blue-step-detail > p, .blue-step-detail p { line-height: 1.9; }
+.blue-section-title { margin: 26px 0 10px; font-size: 14px; color: var(--cyan); border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+.blue-inputs { border: 0; padding: 0; margin: 0; display: grid; gap: 14px; min-width: 0; }
+.blue-inputs label { display: grid; gap: 6px; font-size: 13px; }
+.blue-inputs .safe-mode-choices label { display: flex; }
+.blue-choice-group { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; min-width: 0; }
+.blue-choice-group legend { padding: 0 6px; font-size: 13px; color: var(--muted); }
+.blue-choice-group small { color: var(--muted); line-height: 1.7; }
+.blue-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.blue-grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.blue-actions-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.blue-help { color: var(--muted); font-size: 12px; }
+.blue-feedback { list-style: none; padding: 0; margin: 10px 0; display: grid; gap: 6px; }
+.blue-feedback .choice-feedback { margin: 0; }
+.blue-hints { border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 18px 0; }
+.blue-hints .hint-levels { margin: 12px 0; }
+.blue-hints .command-hint-heading > span { font-size: 11px; }
+.blue-work-list { display: grid; gap: 12px; padding-left: 20px; margin: 0; }
+.blue-work-list > li { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 13px; line-height: 1.8; }
+.blue-work-list > li > span { flex: 1 1 100%; }
+.blue-confirmed { flex: 1 1 100%; margin: 0; padding-left: 18px; font: 12px/1.8 var(--mono); color: var(--cyan); }
+.blue-inline-choices { display: flex; flex-wrap: wrap; gap: 16px; }
+.blue-inline-choices label { display: inline-flex !important; align-items: center; gap: 6px; }
+.blue-report-link { margin-top: 10px; display: inline-flex; }
+.hmi-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 14px; }
+.hmi-table caption, .plc-tag-table caption, .op-log-table caption { text-align: left; color: var(--muted); font-size: 12px; padding: 6px 0; }
+.hmi-table th, .hmi-table td { border-bottom: 1px solid var(--border); padding: 8px; text-align: left; }
+.hmi-table .row-muted td { color: var(--muted); }
+.glossary-panel { padding: 16px 20px; margin: 16px 0; }
+.glossary-panel summary { cursor: pointer; display: flex; align-items: center; gap: 8px; color: var(--cyan); }
+.glossary-panel dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px 20px; margin: 14px 0 0; }
+.glossary-panel dt { font-weight: 600; font-size: 13px; }
+.glossary-panel dd { margin: 2px 0 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.report-guide { display: block; color: var(--muted); font-size: 11px; line-height: 1.7; margin: 2px 0 4px; }
+.instructor-note summary { cursor: pointer; color: var(--orange); font-weight: 600; }
+@media (max-width: 700px) {
+  .blue-status { grid-template-columns: 1fr; }
+  .blue-grid-2, .blue-grid-3 { grid-template-columns: 1fr; }
+  .blue-step-detail { padding: 20px 16px; }
+  .blue-process { padding: 16px; }
+  .hint-levels { flex-wrap: wrap; }
+}

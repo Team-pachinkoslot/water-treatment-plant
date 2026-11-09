@@ -3,8 +3,8 @@ import { join } from "node:path";
 
 export interface TelemetrySample {
   timestamp: string;
-  model_level_pct: number;
-  display_level_pct: number;
+  model_cl_mgl: number; // 独立モデルが推定する残留塩素(mg/L)
+  display_cl_mgl: number; // HMIに表示されている残留塩素(mg/L)
   flow_lpm: number;
   input_feed: "normal" | "untrusted" | "isolated";
   mode: "normal" | "safe_mode" | "recovered";

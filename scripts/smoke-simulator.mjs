@@ -55,7 +55,7 @@ assert.equal(session.mode, "simulator");
 assert.equal(session.flags, undefined);
 await api(`/${id}/materials?stageId=S05`, undefined, 409);
 await api(`/${id}/blue-actions`, { action: "RESTORE_SIMULATED_MONITORING" }, 409);
-const report = { observations: "仮想データの不一致と公開情報の問題を確認した。", evidence: "教材とアクセスログおよび水位サンプルを照合した。", timeline: "UTCで時系列を整理し隔離から正常確認まで順番に対応した。", improvements: "秘密情報を公開領域から分離し連続正常サンプルを確認する。" };
+const report = { observations: "公開サービスと公開情報の問題を確認した。", evidence: "教材とアクセスログを照合して根拠を記録した。", timeline: "UTCで時系列を整理し隔離から正常確認まで順番に対応した。", improvements: "秘密情報を公開領域から分離し連続正常サンプルを確認する。" };
 for (const stageId of ["S01", "S02", "S03", "S04", "S05"]) {
   const flows = {
     S01: ["nmap -sT -p 22,8080 aqua.lab.test", "curl http://aqua.lab.test:8080/training/discovery"],
@@ -89,14 +89,21 @@ for (const stageId of ["S01", "S02", "S03", "S04", "S05"]) {
 await api(`/${id}/report`, { track: "red", report });
 assert.equal(session.score.total, 50);
 await api(`/${id}/blue-actions`, { action: "RESTORE_SIMULATED_MONITORING" }, 409);
-await api(`/${id}/blue-actions`, { action: "ACKNOWLEDGE_ANOMALY", timestamps: [], explanation: report.evidence }, 400);
-await api(`/${id}/blue-actions`, { action: "ACKNOWLEDGE_ANOMALY", timestamps: ["2026-11-02T01:00:10Z", "2026-11-02T01:00:20Z", "2026-11-02T01:00:30Z"], explanation: report.evidence });
-await api(`/${id}/blue-actions`, { action: "ISOLATE_TRAINING_FEED" });
-await api(`/${id}/blue-actions`, { action: "ENTER_SIMULATED_SAFE_MODE" });
-await api(`/${id}/blue-actions`, { action: "VERIFY_STABLE", timestamps: [] }, 409);
-await api(`/${id}/blue-actions`, { action: "VERIFY_STABLE", timestamps: ["2026-11-02T01:02:00Z", "2026-11-02T01:02:10Z", "2026-11-02T01:02:20Z"] });
-await api(`/${id}/blue-actions`, { action: "RESTORE_SIMULATED_MONITORING" });
-await api(`/${id}/report`, { track: "blue", report });
+const blue = {
+  ACKNOWLEDGE_ANOMALY: { start: "14:03", confirmed: "14:05", reason: "14:01は次の回で閾値以内に戻り連続していない。" },
+  ISOLATE_TRAINING_FEED: { target: "PLC-03:CL2_DOSE_SP", causes: ["unauthorized-change", "display-stale"], citeUser: "maint_tmp", citeTime: "14:02:40", citeTicket: "none", decision: "isolate" },
+  ENTER_SIMULATED_SAFE_MODE: { actions: ["man", "block-remote", "field-test", "report"] },
+  VERIFY_STABLE: { approved: true, spRestored: true, accountDisabled: true, feedSwitched: true, confirmed: ["14:10", "14:11", "14:12"], fieldCheck: "consistent" },
+  RESTORE_SIMULATED_MONITORING: { tasks: ["auto", "release", "watch"] },
+};
+await api(`/${id}/blue-actions`, { action: "ACKNOWLEDGE_ANOMALY", answers: { ...blue.ACKNOWLEDGE_ANOMALY, start: "14:01" } }, 400);
+const checked = await api(`/${id}/blue-check`, { action: "ACKNOWLEDGE_ANOMALY", answers: blue.ACKNOWLEDGE_ANOMALY });
+assert.equal(checked.result.ok, true);
+for (const action of ["ACKNOWLEDGE_ANOMALY", "ISOLATE_TRAINING_FEED", "ENTER_SIMULATED_SAFE_MODE"]) await api(`/${id}/blue-actions`, { action, answers: blue[action] });
+await api(`/${id}/blue-actions`, { action: "VERIFY_STABLE", answers: { ...blue.VERIFY_STABLE, confirmed: ["14:10", "14:11"] } }, 409);
+await api(`/${id}/blue-actions`, { action: "VERIFY_STABLE", answers: blue.VERIFY_STABLE });
+await api(`/${id}/blue-actions`, { action: "RESTORE_SIMULATED_MONITORING", answers: blue.RESTORE_SIMULATED_MONITORING });
+await api(`/${id}/report`, { track: "blue", report: { ...report, impact: "PLC-03の塩素注入と浄水池出口の残留塩素に影響した。" } });
 assert.equal(session.complete, true);
 assert.equal(session.score.total, 100);
 const completed = session;

@@ -1,16 +1,16 @@
 {
   "trainingOnly": true,
-  "alertId": "aqua-sensor-mismatch-01",
+  "alertId": "nanaohji-cl2-residual-mismatch-01",
   "severity": "warning",
-  "title": "監視表示値と独立モデル値の不一致",
+  "title": "残留塩素の監視表示値と独立モデル推定値の乖離",
   "trigger": {
-    "metric": "absolute_percent_point_difference",
-    "threshold": 15,
+    "metric": "absolute_mgl_difference",
+    "threshold": 0.2,
     "consecutiveSamples": 3
   },
-  "firstMismatchAt": "2026-11-02T01:00:10Z",
-  "raisedAt": "2026-11-02T01:00:30Z",
-  "message": "表示用データ入力が信頼できない可能性があります。実際の設備には接続していません。",
+  "firstMismatchAt": "2026-11-02T14:03:00Z",
+  "raisedAt": "2026-11-02T14:05:00Z",
+  "message": "表示用データ入力が信頼できない可能性があります。数値は訓練用の架空値で、実際の設備には接続していません。",
   "allowedActions": [
     "ACKNOWLEDGE_ANOMALY",
     "ISOLATE_TRAINING_FEED",
