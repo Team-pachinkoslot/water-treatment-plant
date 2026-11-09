@@ -17,8 +17,8 @@ describe("Phase 1 catalog contract", () => {
     expect(CITY_NAME).toBe("七王子市");
     for (const lab of labs) expect(lab.subtitle).toContain(CITY_NAME);
   });
-  it("does not advertise an available exercise or runtime", () => {
-    for (const lab of labs) expect(lab.status).toBe("coming_soon");
+  it("offers AQUA browser exercise while keeping VM runtime disconnected", () => {
+    expect(labs.map(lab => lab.status)).toEqual(["available", "coming_soon", "coming_soon"]);
     expect(runtimeProvider).toMatchObject({
       mode: "disabled",
       connected: false,

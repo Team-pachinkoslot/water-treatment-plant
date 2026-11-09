@@ -21,7 +21,7 @@ export function LabCard({ lab }: { lab: Lab }) {
         <div className="card-visual-top">
           <span>LAB {lab.number}</span>
           <span className="coming-soon">
-            <i className="dot" /> 準備中
+            <i className={`dot ${lab.status === "available" ? "cyan" : ""}`} /> {lab.status === "available" ? "ブラウザ演習" : "準備中"}
           </span>
         </div>
         <PlantDiagram compact category={lab.category} />

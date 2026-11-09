@@ -1,3 +1,5 @@
+import { connection } from "next/server";
+import { getScenarioMode } from "@/lib/scenarios/runtime.server";
 import { notFound } from "next/navigation";
 import { getLab, labs } from "@/lib/labs";
 import { LabDetail } from "@/components/lab-detail";
@@ -21,5 +23,6 @@ export default async function LabPage({
   const { slug } = await params;
   const lab = getLab(slug);
   if (!lab) notFound();
-  return <LabDetail lab={lab} />;
+  await connection();
+  return <LabDetail lab={lab} exerciseEnabled={lab.id === "water-01" && getScenarioMode() === "simulator"} />;
 }

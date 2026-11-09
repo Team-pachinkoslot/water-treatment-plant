@@ -1,7 +1,9 @@
 import { ScenarioRuntimeError, LabError } from "./errors.server";
-import { getScenarioMode, getScenarioRuntime, type StartedSession } from "./runtime.server";
+import { getScenarioMode, type StartedSession } from "./runtime.server";
 import type { SessionAccess, ReportFields } from "./session-types";
 import type { BlueActionCode } from "./aqua";
+import { SimulatorScenarioRuntime } from "./simulator.server";
+import { restoreCloudState, encodeCloudState, checkpointCookie, recentStarts } from "./cloud-state.server";
 
 const COOKIE = "aqua_session";
 const noStore = { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" };
@@ -9,13 +11,13 @@ function fail(code: string, message: string, status = 400): never { throw new La
 function checkRequest(request: Request, mutation = false) {
   if (getScenarioMode() !== "simulator") throw new ScenarioRuntimeError();
   const url = new URL(request.url);
-  if (!["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)) fail("LOCAL_ONLY", "テスト演習はローカル環境専用です。", 403);
-  // Next.js may normalize request.url to localhost even for a 127.0.0.1 request.
-  // Validate both authorities as loopback; compare Origin to the actual Host header.
+  // Vercel HTTPS origins and loopback development are supported. No target hosts are contacted.
+  const local = (hostname: string) => ["127.0.0.1", "localhost", "[::1]"].includes(hostname);
   const host = request.headers.get("host") ?? url.host;
   let authority: URL;
-  try { authority = new URL(`${url.protocol}//${host}`); } catch { return fail("LOCAL_ONLY", "接続先を確認してください。", 403); }
-  if (!["127.0.0.1", "localhost", "[::1]"].includes(authority.hostname) || authority.port !== url.port || authority.username || authority.password || authority.host !== host) fail("LOCAL_ONLY", "接続先を確認してください。", 403);
+  try { authority = new URL(`${url.protocol}//${host}`); } catch { return fail("ORIGIN_REJECTED", "接続先を確認してください。", 403); }
+  const matches = authority.host === url.host || (local(authority.hostname) && local(url.hostname) && authority.port === url.port);
+  if (!matches || authority.username || authority.password || authority.host !== host || (authority.protocol !== "https:" && !local(authority.hostname))) fail("ORIGIN_REJECTED", "接続先を確認してください。", 403);
   if (request.headers.get("sec-fetch-site") === "cross-site") fail("ORIGIN_REJECTED", "同じサイトから操作してください。", 403);
   if (mutation) {
     if (request.headers.get("origin") !== authority.origin) fail("ORIGIN_REJECTED", "同じサイトから操作してください。", 403);
@@ -29,8 +31,18 @@ export function sessionAccess(request: Request, id?: string): SessionAccess {
   if (id && id !== "current" && id !== match[1]) fail("SESSION_NOT_FOUND", "セッションが見つかりません。", 404);
   return { sessionId: match[1], token: match[2] };
 }
-function response(value: unknown, status = 200, started?: StartedSession) {
-  return Response.json(value, { status, headers: { ...noStore, ...(started ? { "Set-Cookie": `${COOKIE}=${started.sessionId}.${started.token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400` } : {}) } });
+function response(value: Record<string, unknown>, request: Request, status = 200, runtime?: SimulatorScenarioRuntime, starts: number[] = [], started?: StartedSession) {
+  const headers = new Headers(noStore);
+  if (runtime) {
+    const snapshot = runtime.cloudSnapshot();
+    if (JSON.parse(snapshot).sessions.length === 1) {
+      const cloudState = encodeCloudState(snapshot);
+      value = { ...value, cloudState };
+      headers.append("Set-Cookie", checkpointCookie(cloudState, starts, new URL(request.url).protocol === "https:"));
+    }
+  }
+  if (started) headers.append("Set-Cookie", `${COOKIE}=${started.sessionId}.${started.token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400${new URL(request.url).protocol === "https:" ? "; Secure" : ""}`);
+  return Response.json(value, { status, headers });
 }
 async function body(request: Request): Promise<Record<string, unknown>> {
   const reader = request.body?.getReader();
@@ -41,7 +53,7 @@ async function body(request: Request): Promise<Record<string, unknown>> {
     const { value, done } = await reader.read();
     if (done) break;
     length += value.length;
-    if (length > 24_000) { await reader.cancel(); fail("BODY_TOO_LARGE", "入力が長すぎます。", 413); }
+    if (length > 512_000) { await reader.cancel(); fail("BODY_TOO_LARGE", "入力が長すぎます。", 413); }
     chunks.push(value);
   }
   try {
@@ -56,38 +68,47 @@ function evidenceFields(data: unknown): Record<string, string> {
   return Object.fromEntries(Object.entries(data).filter(([, value]) => typeof value === "string")) as Record<string, string>;
 }
 export async function handleSessionRequest(request: Request, id?: string, operation?: string) {
+  let runtime: SimulatorScenarioRuntime | undefined;
+  let starts: number[] = [];
   try {
     checkRequest(request, request.method !== "GET");
-    const runtime = getScenarioRuntime();
+    const data = request.method === "POST" ? await body(request) : {};
     if (request.method === "POST" && !id) {
-      const data = await body(request);
+      starts = recentStarts(request);
+      runtime = SimulatorScenarioRuntime.fromCloudSnapshot(undefined, starts);
       const started = await runtime.start(text(data.labId));
-      return response({ session: started.session }, 201, started);
+      starts.push(Date.now());
+      return response({ session: started.session }, request, 201, runtime, starts, started);
     }
     const access = sessionAccess(request, id);
-    if (request.method === "GET" && !operation) return response({ session: await runtime.getSession(access) });
-    if (request.method === "GET" && operation === "materials") return response(await runtime.getMaterials(access, new URL(request.url).searchParams.get("stageId") ?? ""));
+    const snapshot = restoreCloudState(request, data.cloudState);
+    starts = recentStarts(request);
+    runtime = SimulatorScenarioRuntime.fromCloudSnapshot(snapshot, starts);
+    const ok = (value: Record<string, unknown>) => response(value, request, 200, runtime, starts);
+    if ((!operation && request.method === "GET") || (operation === "restore" && request.method === "POST")) return ok({ session: await runtime.getSession(access) });
+    if (operation === "materials") return ok({ ...await runtime.getMaterials(access, text(data.stageId)) });
     if (request.method !== "POST") return fail("NOT_FOUND", "操作が見つかりません。", 404);
-    const data = await body(request);
     if (operation === "reset") {
       const started = await runtime.reset(access);
-      return response({ session: started.session }, 201, started);
+      return response({ session: started.session }, request, 201, runtime, starts, started);
     }
-    if (operation === "flags") return response({ session: await runtime.submitFlag(access, text(data.stageId), text(data.flag), evidenceFields(data.evidence)) });
-    if (operation === "hints") return response(await runtime.getHint(access, text(data.stageId), typeof data.index === "number" ? data.index : -1));
-    if (operation === "stage5-evidence") return response(await runtime.stage5Evidence(access, { sourceIp: text(data.sourceIp), firstEventTimestampUtc: text(data.firstEventTimestampUtc) }));
+    if (operation === "flags") return ok({ session: await runtime.submitFlag(access, text(data.stageId), text(data.flag), evidenceFields(data.evidence)) });
+    if (operation === "hints") return ok(await runtime.getHint(access, text(data.stageId), typeof data.index === "number" ? data.index : -1));
+    if (operation === "stage5-evidence") return ok(await runtime.stage5Evidence(access, { sourceIp: text(data.sourceIp), firstEventTimestampUtc: text(data.firstEventTimestampUtc) }));
     if (operation === "report") {
       const fields = evidenceFields(data.report);
       const report: ReportFields = { observations: text(fields.observations), evidence: text(fields.evidence), timeline: text(fields.timeline), improvements: text(fields.improvements) };
-      return response({ session: await runtime.submitReport(access, text(data.track) as "red" | "blue", report) });
+      return ok({ session: await runtime.submitReport(access, text(data.track) as "red" | "blue", report) });
     }
     if (operation === "blue-actions") {
-      return response({ session: await runtime.performBlueAction(access, text(data.action) as BlueActionCode, { timestamps: Array.isArray(data.timestamps) && data.timestamps.every(v => typeof v === "string") ? data.timestamps as string[] : [], explanation: text(data.explanation) }) });
+      return ok({ session: await runtime.performBlueAction(access, text(data.action) as BlueActionCode, { timestamps: Array.isArray(data.timestamps) && data.timestamps.every(v => typeof v === "string") ? data.timestamps as string[] : [], explanation: text(data.explanation) }) });
     }
     return fail("NOT_FOUND", "操作が見つかりません。", 404);
   } catch (error) {
-    if (error instanceof LabError) return response({ error: { code: error.code, message: error.message } }, error.status);
-    // Never serialize DB paths, cookies, answers or raw exceptions.
-    return response({ error: { code: "INTERNAL_ERROR", message: "保存処理に失敗しました。少し待って再試行してください。" } }, 500);
-  }
+    if (error instanceof LabError) {
+      const maySave = ![401, 404, 410, 503].includes(error.status);
+      return response({ error: { code: error.code, message: error.message } }, request, error.status, maySave ? runtime : undefined, starts);
+    }
+    return response({ error: { code: "INTERNAL_ERROR", message: "演習データを処理できませんでした。再読込してお試しください。" } }, request, 500);
+  } finally { runtime?.dispose(); }
 }

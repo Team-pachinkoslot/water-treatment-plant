@@ -31,7 +31,7 @@ export class DisabledScenarioRuntime implements ScenarioRuntimeAdapter {
   async performBlueAction(): Promise<never> { throw new ScenarioRuntimeError(); }
 }
 export function getScenarioMode(mode = env.LAB_RUNTIME_MODE): ScenarioMode {
-  return mode === "simulator" ? "simulator" : "disabled";
+  return mode === undefined || mode === "" || mode === "simulator" ? "simulator" : "disabled";
 }
 export function getScenarioRuntime(mode = env.LAB_RUNTIME_MODE): ScenarioRuntimeAdapter {
   return getScenarioMode(mode) === "simulator" ? new SimulatorScenarioRuntime() : new DisabledScenarioRuntime();

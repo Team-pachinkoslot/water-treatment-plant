@@ -13,3 +13,6 @@ node_modules/
 .env
 .env.*
 !.env.example
+
+# Private build artifact, traced into server functions only.
+.aqua/

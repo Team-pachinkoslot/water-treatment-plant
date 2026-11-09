@@ -67,7 +67,7 @@ export function Catalog() {
         </div>
       </div>
       <div className="results-meta" aria-live="polite">
-        {filtered.length} 件のシナリオ <span>すべてのラボは現在準備中です</span>
+        {filtered.length} 件のシナリオ <span>LAB 01はブラウザで演習できます</span>
       </div>
       <div className="lab-grid">
         {filtered.map((lab) => (

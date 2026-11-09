@@ -12,7 +12,7 @@ export type Lab = {
   description: string;
   level: "初級" | "中級" | "上級";
   category: "water" | "power" | "rail";
-  status: "coming_soon";
+  status: "available" | "coming_soon";
   durationMinutes?: number;
   skills: string[];
   monitors: string[];
@@ -31,7 +31,7 @@ export const labs: readonly Lab[] = [
       "攻撃者の視点で手掛かりを集め、守る側の判断へ。架空の浄水場を舞台に、ICSセキュリティの基礎を学びます。",
     level: "初級",
     category: "water",
-    status: "coming_soon",
+    status: "available",
     skills: ["偵察", "Web調査", "Linux", "ログ解析"],
     monitors: ["水位", "流量", "水質", "ポンプ状態"],
     objectives: [

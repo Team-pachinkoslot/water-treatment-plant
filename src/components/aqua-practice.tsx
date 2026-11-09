@@ -8,30 +8,55 @@ import type { MaterialView, ReportFields, SessionView } from "@/lib/scenarios/se
 
 const emptyReport = (): ReportFields => ({ observations: "", evidence: "", timeline: "", improvements: "" });
 const reportLabels: Record<keyof ReportFields, string> = { observations: "観測結果・判断", evidence: "証拠・根拠", timeline: "UTCの時系列・実施手順", improvements: "改善案・復旧条件・残存リスク" };
-type ApiData = { session?: SessionView; flag?: string; hint?: string; error?: { code: string; message: string } } & Partial<MaterialView>;
-async function api(path: string, payload?: unknown): Promise<ApiData> {
-  const response = await fetch(`/api/lab-sessions${path}`, { method: payload === undefined ? "GET" : "POST", cache: "no-store", credentials: "same-origin", ...(payload === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }) });
-  const data = await response.json();
+type ApiData = { session?: SessionView; cloudState?: string; flag?: string; hint?: string; error?: { code: string; message: string } } & Partial<MaterialView>;
+const STORAGE_KEY = "aqua-cloud-exercise-v1";
+function savedState(): string | null {
+  try { return window.localStorage.getItem(STORAGE_KEY); }
+  catch { throw new Error("ブラウザの保存機能を利用できません。サイトデータの保存を許可してください。"); }
+}
+async function api(path: string, payload: Record<string, unknown> = {}): Promise<ApiData> {
+  const cloudState = savedState();
+  const response = await fetch(`/api/lab-sessions${path}`, {
+    method: "POST", cache: "no-store", credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...payload, ...(cloudState ? { cloudState } : {}) }),
+  });
+  const data: ApiData = await response.json();
+  // Rejected attempts update the encrypted checkpoint too, preserving per-browser limits.
+  if (data.cloudState) {
+    try { window.localStorage.setItem(STORAGE_KEY, data.cloudState); }
+    catch { throw new Error("進捗を保存できませんでした。ブラウザの保存領域を確認し、新しい演習を開始してください。"); }
+  }
   if (!response.ok) throw new Error(`${data.error?.message ?? "処理に失敗しました。"} (${data.error?.code ?? response.status})`);
   return data;
+}
+let bootstrapRequest: Promise<ApiData> | undefined;
+function bootstrap(autoStart: boolean) {
+  if (!bootstrapRequest) {
+    bootstrapRequest = (async () => {
+      if (savedState()) return api("/current/restore");
+      return autoStart ? api("", { labId: "water-01" }) : {};
+    })().finally(() => { bootstrapRequest = undefined; });
+  }
+  return bootstrapRequest;
 }
 function ReportForm({ track, saved, enabled, busy, onSave }: { track: "red" | "blue"; saved: ReportFields | null; enabled: boolean; busy: boolean; onSave: (report: ReportFields) => void }) {
   const [report, setReport] = useState<ReportFields>(saved ?? emptyReport());
   return <form className="panel aqua-report practice-report" onSubmit={e => { e.preventDefault(); onSave(report); }}>
     <h2>{track === "red" ? "調査レポート / Red Team" : "防御レポート / Blue Team"}</h2>
     <p>{saved ? "提出済みです。内容を更新して再提出できます。" : "各項目10文字以上で記録してください。保存は提出ボタンを押した時点で行います。"}</p>
-    <p>テスト採点は入力項目の充足と検証済みの操作を評価します。文章の妥当性・証拠の品質は講師の確認が必要です。</p>
+    <p>演習の採点は入力項目の充足と検証済みの操作を評価します。文章の妥当性・証拠の品質は講師の確認が必要です。</p>
     <fieldset disabled={!enabled || busy}>{(Object.keys(reportLabels) as (keyof ReportFields)[]).map(key => <label key={key} htmlFor={`${track}-${key}`}>{reportLabels[key]}<textarea id={`${track}-${key}`} value={report[key]} minLength={10} maxLength={4000} required rows={3} onChange={e => setReport({ ...report, [key]: e.target.value })} /></label>)}<button className="button primary" disabled={!enabled || busy} type="submit">{track === "red" ? "調査" : "防御"}レポートを提出</button></fieldset>
     {!enabled && <p>{track === "red" ? "5つのFLAG提出後に利用できます。" : "模擬復旧後に利用できます。"}</p>}
   </form>;
 }
-export function AquaPractice({ enabled, samples, recoverySamples }: { enabled: boolean; samples: TelemetrySample[]; recoverySamples: TelemetrySample[] }) {
+export function AquaPractice({ enabled, autoStart = false, initialTrack = "red", samples, recoverySamples }: { enabled: boolean; autoStart?: boolean; initialTrack?: "red" | "blue" | "results"; samples: TelemetrySample[]; recoverySamples: TelemetrySample[] }) {
   const [session, setSession] = useState<SessionView | null>(null);
   const [loading, setLoading] = useState(enabled);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [track, setTrack] = useState<"red" | "blue" | "results">("red");
+  const [track, setTrack] = useState<"red" | "blue" | "results">(initialTrack);
   const [materials, setMaterials] = useState<Record<string, MaterialView>>(Object.create(null));
   const [hints, setHints] = useState<Record<string, string>>(Object.create(null));
   const [flag, setFlag] = useState("");
@@ -47,14 +72,13 @@ export function AquaPractice({ enabled, samples, recoverySamples }: { enabled: b
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
-    fetch("/api/lab-sessions/current", { cache: "no-store", credentials: "same-origin" }).then(async response => {
-      const data: ApiData = await response.json();
-      if (cancelled) return;
-      if (response.ok && data.session) setSession(data.session);
-      else if (response.status !== 401 && response.status !== 410) setError(data.error?.message ?? "進捗を取得できませんでした。");
-    }).catch(() => { if (!cancelled) setError("保存済み進捗を取得できませんでした。再読込してください。"); }).finally(() => { if (!cancelled) setLoading(false); });
+    bootstrap(autoStart).then(data => {
+      if (!cancelled && data.session) setSession(data.session);
+    }).catch(e => {
+      if (!cancelled) setError(e instanceof Error ? e.message : "保存済み進捗を取得できませんでした。再読込してください。");
+    }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [enabled]);
+  }, [enabled, autoStart]);
 
   async function run(operation: () => Promise<ApiData>, success: string, done?: (data: ApiData) => void) {
     setBusy(true); setError(""); setMessage("");
@@ -78,14 +102,14 @@ export function AquaPractice({ enabled, samples, recoverySamples }: { enabled: b
 
   return <div className="page aqua-page practice-page">
     <Link className="back-link" href="/labs/water-treatment">← シナリオ概要に戻る</Link>
-    <header className="aqua-header"><div className="eyebrow">PROJECT AQUA / BROWSER SIMULATOR <span className="aqua-badge">テスト専用</span></div><h1>調査から復旧まで、シミュレーターで試す。</h1><p>七王子市中央浄水場（架空） / Red Team 30分 + Blue Team 20分</p></header>
-    <div className="notice aqua-notice"><div><strong>実VM・設備への接続はありません</strong><br />教材の閲覧とデータベース内の演習状態のみを扱います。コマンド実行・SSH接続・ネットワーク調査は行いません。教材のイベント日時は2026-11-02の固定された架空データ（UTC）です。</div></div>
-    {!enabled && <section className="panel aqua-report"><h2>テストモードは無効です</h2><p>既定のdisabledモードです。開始・提出・状態変更はサーバー側でも拒否されます。</p><p>ローカルで試すには通常の開発サーバーを停止し、<code>npm run dev:simulator</code>で起動してください。</p><button className="button disabled" disabled>テスト演習を開始（無効）</button></section>}
+    <header className="aqua-header"><div className="eyebrow">PROJECT AQUA / BROWSER SIMULATOR <span className="aqua-badge">ブラウザ演習</span></div><h1>調査から復旧まで、ブラウザで演習する。</h1><p>七王子市中央浄水場（架空） / Red Team 30分 + Blue Team 20分</p></header>
+    <div className="notice aqua-notice"><div><strong>実VM・設備への接続はありません</strong><br />Linuxに接続せず、教材の閲覧と模擬演習をブラウザで行います。進捗は暗号化してこのブラウザに保存されます。コマンド実行・SSH接続・ネットワーク調査は行いません。教材のイベント日時は2026-11-02の固定された架空データ（UTC）です。</div></div>
+    {!enabled && <section className="panel aqua-report"><h2>演習は現在停止しています</h2><p>現在は教材プレビューを閲覧できます。演習が公開されるまでお待ちください。</p><button className="button disabled" disabled>演習を開始（停止中）</button></section>}
     {enabled && loading && <p role="status">保存済みの進捗を確認しています…</p>}
     <div className="practice-feedback" aria-live="polite">{message && <p role="status">{message}</p>}{error && <p role="alert" className="practice-error">{error}</p>}</div>
-    {enabled && !loading && !session && <section className="panel aqua-report"><h2>新しいテスト演習</h2><p>このブラウザ専用のセッションを作成します。有効期限は24時間です。同じブラウザの再読込で、提出済みの進捗を復元します。</p><button className="button primary" disabled={busy} onClick={() => void run(() => api("", { labId: "water-01" }), "テスト演習を開始しました。")}>テスト演習を開始</button></section>}
+    {enabled && !loading && !session && <section className="panel aqua-report"><h2>新しいブラウザ演習</h2><p>このブラウザ専用の演習を開始します。有効期限は24時間です。同じブラウザで再開できます。ブラウザの保存データを削除すると進捗は失われます。</p><button className="button primary" disabled={busy} onClick={() => void run(() => api("", { labId: "water-01" }), "演習を開始しました。")}>演習を開始</button></section>}
     {session && <>
-      <section className="panel practice-progress"><div><strong>{session.complete ? "テスト演習完了" : "テスト演習中"}</strong><p>FLAG {session.completedStages.length} / 5 · {session.score.total} / 100点 · 模擬状態：{session.blueState}</p><small>有効期限：{new Date(session.expiresAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} JST</small></div><button className="text-link" disabled={busy} onClick={() => void run(() => api(`${path}/reset`, {}), "旧セッションを無効化し、新しいテストにリセットしました。", clearExercise)}>このテストをリセット</button></section>
+      <section className="panel practice-progress"><div><strong>{session.complete ? "演習完了" : "演習中"}</strong><p>FLAG {session.completedStages.length} / 5 · {session.score.total} / 100点 · 模擬状態：{session.blueState}</p><small>有効期限：{new Date(session.expiresAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} JST</small></div><button className="text-link" disabled={busy} onClick={() => void run(() => api(`${path}/reset`, {}), "新しい演習にリセットしました。", clearExercise)}>演習をリセット</button></section>
       <nav className="aqua-nav" aria-label="テスト演習トラック">{([['red','Red Team'],['blue','Blue Team'],['results','結果・レポート']] as const).map(([id,label]) => <button key={id} aria-pressed={track === id} onClick={() => { setTrack(id); setMessage(""); setError(""); }}>{label}</button>)}</nav>
       {track === "red" && <>
         <div className="aqua-stages">{aquaScenario.redStages.map((stage,i) => {
@@ -95,7 +119,7 @@ export function AquaPractice({ enabled, samples, recoverySamples }: { enabled: b
           return <section className="panel aqua-stage" key={stage.id}>
             <div className="aqua-stage-heading"><span className="aqua-stage-number">0{i + 1}</span><div><div className="eyebrow">{stage.skill}</div><h2>{stage.title}</h2></div><span className="practice-stage-status">{complete ? "提出済み / 8点" : active ? "調査中" : "未解放"}</span></div>
             <p>{stage.studentTask}</p><p>記録する証拠：{stage.report}</p>
-            <button className="button secondary" disabled={!unlocked || busy} onClick={() => void run(() => api(`${path}/materials?stageId=${stage.id}`), "教材を開きました。", data => { if (data.files) setMaterials(previous => ({ ...previous, [stage.id]: data as MaterialView })); })}>教材を開く</button>
+            <button className="button secondary" disabled={!unlocked || busy} onClick={() => void run(() => api(`${path}/materials`, { stageId: stage.id }), "教材を開きました。", data => { if (data.files) setMaterials(previous => ({ ...previous, [stage.id]: data as MaterialView })); })}>教材を開く</button>
             {materials[stage.id]?.files.map(file => <div className="practice-material" key={file.path}><h3>{file.path}</h3><pre>{file.content}</pre></div>)}
             <div className="practice-hints">{stage.hints.map((_,index) => <div key={index}><button className="text-link" disabled={!unlocked || busy} onClick={() => void run(() => api(`${path}/hints`, { stageId: stage.id, index }), "ヒントの利用を記録しました。", data => { if (data.hint) setHints(previous => ({ ...previous, [`${stage.id}-${index}`]: data.hint! })); })}>ヒント {index + 1}</button>{hints[`${stage.id}-${index}`] && <p>{hints[`${stage.id}-${index}`]}</p>}</div>)}</div>
             {active && <>
@@ -122,7 +146,7 @@ export function AquaPractice({ enabled, samples, recoverySamples }: { enabled: b
         {session.complete && <button className="button primary practice-next" onClick={() => setTrack("results")}>結果を見る →</button>}
       </>}
       {track === "results" && <>
-        <section className="panel aqua-report"><h2>{session.complete ? "テスト演習を完了しました" : "途中経過"}</h2><div className="practice-score">{session.score.total}<small> / 100</small></div><dl className="practice-score-details"><div><dt>Red Team / 5FLAG</dt><dd>{session.score.redFlags} / 40</dd></div><div><dt>調査レポート項目の充足</dt><dd>{session.score.redReport} / 10</dd></div><div><dt>Blue Team / 対応操作</dt><dd>{session.score.blueActions} / 42</dd></div><div><dt>検知根拠・防御レポート項目の充足</dt><dd>{session.score.blueEvidence} / 8</dd></div></dl><p>これはシミュレーターのテスト結果です。実VMの操作技能や文章の品質を認定するものではありません。</p>
+        <section className="panel aqua-report"><h2>{session.complete ? "ブラウザ演習を完了しました" : "途中経過"}</h2><div className="practice-score">{session.score.total}<small> / 100</small></div><dl className="practice-score-details"><div><dt>Red Team / 5FLAG</dt><dd>{session.score.redFlags} / 40</dd></div><div><dt>調査レポート項目の充足</dt><dd>{session.score.redReport} / 10</dd></div><div><dt>Blue Team / 対応操作</dt><dd>{session.score.blueActions} / 42</dd></div><div><dt>検知根拠・防御レポート項目の充足</dt><dd>{session.score.blueEvidence} / 8</dd></div></dl><p>これはブラウザ内シミュレーターの演習結果です。実VMの操作技能や文章の品質を認定するものではありません。</p>
           <button className="button secondary" onClick={() => { const url = URL.createObjectURL(new Blob([JSON.stringify(session, null, 2)], { type: "application/json" })); const a = document.createElement("a"); a.href = url; a.download = `aqua-test-${session.id}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }}>結果とレポートをJSONで保存</button>
         </section>
         {(["red", "blue"] as const).map(which => <section className="panel aqua-report" key={which}><h2>{which === "red" ? "調査" : "防御"}レポート {session.reports[which] ? "提出済み" : "未提出"}</h2>{session.reports[which] && (Object.keys(reportLabels) as (keyof ReportFields)[]).map(key => <div key={key}><h3>{reportLabels[key]}</h3><p className="practice-report-text">{session.reports[which]![key]}</p></div>)}</section>)}

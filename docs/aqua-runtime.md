@@ -1,54 +1,56 @@
-# PROJECT AQUA / 実行契約
+# PROJECT AQUA / Vercel内で完結する実行契約
 
-`ScenarioDefinition`は学習者向けの定義、`ScenarioRuntimeAdapter`はサーバー側の実行契約です。既定は`DisabledScenarioRuntime`、明示的な`LAB_RUNTIME_MODE=simulator`で`SimulatorScenarioRuntime`を選択します。他の値は無効です。
+既定は`simulator`です。`LAB_RUNTIME_MODE=disabled`または未知の値で演習操作を503 / `RUNTIME_NOT_CONFIGURED`として拒否します。Linux・VM・外部DB・SSHへの接続はありません。
 
-このシミュレーターは利用者の「実VMなし、一旦テスト」の指定による追加範囲です。Phase 1の教材プレビューを維持し、テスト演習は専用の`/labs/water-treatment/practice`で実行します。カタログは実VM演習未公開の`coming_soon`を維持し、VMランタイムとブラウザテストを区別します。
+## Functionとブラウザ間の状態
 
-## ローカルAPI
+開始時にサーバーがセッション・ステージ別の暗号学的乱数FLAGを発行します。`cloudState`は、秘密値を含む内部状態をAES-256-GCMで暗号化し、deflateしたopaqueなデータです。クライアントは復号・採点せずlocalStorageへ保存します。毎回のリクエスト本文で最新`cloudState`を返し、サーバーが所有者・期限・認証タグ・チェックポイント・課題の条件を検証します。
 
-全レスポンスは`Cache-Control: private, no-store`。`disabled`時は全操作を503 / `RUNTIME_NOT_CONFIGURED`で拒否します。テスト時の変更リクエストは同じローカルHostのOriginと`application/json`が必要です。本文上限は24,000バイトです。
+`aqua_session` Cookieはセッション所有者、`aqua_checkpoint` Cookieは最新状態のダイジェストとブラウザごとの開始回数を保持します。チェックポイントCookieも暗号化・認証します。CookieはHttpOnly / SameSite=Strictで、HTTPSではSecureです。サーバーは失敗した提出も新しい暗号化状態として返すため、クライアントはエラーを表示する前に`cloudState`を保存します。
 
-| メソッド・パス | 入力 | 動作 |
+Function内はリクエストごとのメモリ内SQLiteです。前回Functionの実行メモリや書込可能ディスクを前提にしません。状態を持つのはブラウザだけで、全体の集中集計・サーバー側の全履歴失効・利用者をまたぐ厳密な制限はありません。過去のCookieと暗号化状態を丸ごと保存した利用者の再現操作を、共有ストアなしで一括失効させるものではありません。正式な成績管理向けではなく自己学習用です。
+
+## 鍵
+
+`npm run build`前に`.aqua/session-key.json`を生成し、`outputFileTracingIncludes`でサーバーFunctionへ同梱します。Gitと公開ディレクトリには追加しません。鍵はブラウザへ渡しません。
+
+任意の`AQUA_SESSION_KEY`（64桁16進文字列）があればそちらを優先します。固定した環境変数を設定すれば再デプロイをまたいで状態を復号できます。未指定ならデプロイ単位の鍵で、再デプロイ後は新しい演習を開始する方式です。`NEXT_PUBLIC_`変数には保存しません。
+
+## HTTPS API
+
+リクエストは同一オリジンのJSON POSTで、開始以外はCookieと`cloudState`が必要です。Vercelを含むHTTPSドメイン、またはローカル開発のループバックHTTPを許可します。Host不一致・別Origin・cross-siteリクエストを拒否します。レスポンスは`Cache-Control: private, no-store`、本文上限は512,000バイトです。
+
+| メソッド・パス | cloudState以外の入力 | 動作 |
 | --- | --- | --- |
-| POST /api/lab-sessions | labId=water-01 | 24時間セッションを発行しHttpOnly Cookieを設定 |
-| GET /api/lab-sessions/current | — | Cookie所有者の進捗取得 |
-| GET /api/lab-sessions/{sessionId} | — | CookieとIDが一致する進捗取得 |
-| GET /api/lab-sessions/{sessionId}/materials?stageId=S01 | — | 解放済みステージの教材だけ返す |
-| POST /api/lab-sessions/{sessionId}/hints | stageId, index(0〜2) | ヒント表示を監査して本文を返す |
-| POST /api/lab-sessions/{sessionId}/flags | stageId, flag, evidence | FLAGと段階別根拠を検証し進捗保存 |
-| POST /api/lab-sessions/{sessionId}/stage5-evidence | sourceIp, firstEventTimestampUtc | 架空ログと照合し正答時のみFLAG発行 |
-| POST /api/lab-sessions/{sessionId}/blue-actions | action, timestamps?, explanation? | 証拠と順序を検証して模擬状態を保存 |
-| POST /api/lab-sessions/{sessionId}/report | track(red/blue), report | レポート保存と項目充足の採点 |
-| POST /api/lab-sessions/{sessionId}/reset | {} | 所有セッションを無効化し新規Cookie・FLAGを発行 |
+| POST /api/lab-sessions | labId=water-01 | 新規セッションとCookie、暗号化状態を発行 |
+| POST /api/lab-sessions/current/restore | — | 保存済み演習を再開 |
+| POST /api/lab-sessions/{sessionId}/restore | — | 所有セッションの進捗取得 |
+| POST /api/lab-sessions/{sessionId}/materials | stageId | 解放済みステージだけの教材を返す |
+| POST /api/lab-sessions/{sessionId}/hints | stageId, index(0〜2) | ヒント利用を記録 |
+| POST /api/lab-sessions/{sessionId}/flags | stageId, flag, evidence | FLAGと根拠を検証 |
+| POST /api/lab-sessions/{sessionId}/stage5-evidence | sourceIp, firstEventTimestampUtc | 正答時のみStage 05 FLAGを払い出す |
+| POST /api/lab-sessions/{sessionId}/blue-actions | action, timestamps?, explanation? | 模擬状態を遷移 |
+| POST /api/lab-sessions/{sessionId}/report | track, report | 調査／防御レポート保存・項目充足の採点 |
+| POST /api/lab-sessions/{sessionId}/reset | — | ブラウザの現セッションを新規ID・FLAGへ切替 |
 
-`evidence`はStage 01で`ports`、Stage 03で`risk`、Stage 04で`permission`を受け付けます。Stage 05は事前の根拠検証済みを確認します。FLAGや根拠の不正回答では次ステージへ進みません。ステージの照合はサーバー側のみで実施し、正解一覧はレスポンスに含めません。
+読み取り操作も大きな暗号化状態をCookieやHTTPヘッダーへ入れず、本文で渡すためPOSTにしています。リクエストのキー・入力形式・所有者確認はサーバー側で処理します。未開始401、別セッション404、期限切れ410、不正遷移／古い状態409、試行制限429です。
 
-未開始は401、他セッションは404、期限切れは410、順序不正は409、試行回数超過は429です。全セッションを共有する開始回数制限は1分10回、FLAGとStage 05根拠回答の制限は各セッションの課題ごとに1分10回です。
+`evidence`はS01で`ports`、S03で`risk`、S04で`permission`を使用します。S05は事前に根拠回答が検証されている必要があります。FLAG正解一覧は平文のセッションDTOへ含めず、各教材やS05根拠検証成功時だけ該当FLAGを返します。
 
-Cookieはランダム秘密値を持ち、DBにはCookie秘密値のSHA-256を保存します。正解FLAGはセッション／ステージ単位の暗号学的乱数です。DBにのみ保存し、S01〜04の対応する教材、S05の根拠回答成功レスポンスでのみ払い出します。ヒント閲覧・提出結果・状態遷移を履歴へ保存し、FLAG入力値や資格情報は記録しません。
+## 状態と得点
 
-## Blue Team
-
-5FLAGとRedレポートの提出後に解放します。
+5FLAGと調査レポート後にBlue Teamを解放します。
 
 | 操作 | 遷移 | 必要な証拠 |
 | --- | --- | --- |
-| ACKNOWLEDGE_ANOMALY | anomaly_detected → investigating | 最初の3連続不一致のUTC時刻と10文字以上の説明 |
+| ACKNOWLEDGE_ANOMALY | anomaly_detected → investigating | 最初の3連続不一致のUTC時刻と説明 |
 | ISOLATE_TRAINING_FEED | investigating → input_isolated | 前段階完了 |
 | ENTER_SIMULATED_SAFE_MODE | input_isolated → safe_mode | 前段階完了 |
-| VERIFY_STABLE | safe_mode → verified | 復旧サンプルの3連続一致のUTC時刻 |
+| VERIFY_STABLE | safe_mode → verified | 復旧教材の3連続正常のUTC時刻 |
 | RESTORE_SIMULATED_MONITORING | verified → recovered | 正常性確認完了 |
 
-不正順序は`INVALID_STATE_TRANSITION`、正常性の根拠不足は`VERIFICATION_REQUIRED`とし状態を変更しません。証拠は固定教材から照合します。これはVMの観測値や設備の安全性確認ではありません。固定グラフは観測教材で、模擬状態の更新先はSQLite内のセッションだけです。
+不正順序は`INVALID_STATE_TRANSITION`、正常性の根拠不足は`VERIFICATION_REQUIRED`として状態を変えません。これらは固定された架空教材の検証で、実設備の安全確認ではありません。
 
-## 保存・得点・復元
+レポート項目は`observations`、`evidence`、`timeline`、`improvements`で、それぞれ10〜4000文字です。Red FLAG40、調査レポート10、Blue操作42、検知根拠と防御レポート8の合計100点です。レポート本文の品質評価は講師確認が必要です。
 
-SQLiteのトランザクションで各操作を保存し、同じCookieとDBがあれば再読込・アプリ再起動後も復帰できます。レポートの未提出の入力中テキストは保存しません。期限切れセッションは新規開始時に削除します。リセットでは対象セッションを削除し、新規ID・秘密値・FLAGを発行するので、旧CookieとFLAGは利用できません。
-
-レポートの4項目は`observations`、`evidence`、`timeline`、`improvements`です。各10〜4000文字が必要で、Redは5FLAG後、Blueはrecovered後に提出できます。Red FLAG40点・Redレポート10点・Blue対応42点・Blue証拠とレポート8点です。文章の品質・事実の妥当性は講師確認が必要です。
-
-完了条件は5FLAG、Redレポート、Blue recovered、Blueレポートです。セッションDTOと結果JSONには正解FLAGやCookie秘密値を含めません。
-
-## VM連携の残り
-
-VMware Fusionアダプター、Kali/Ubuntu ARM64、隔離とホスト側経路の検証、最小権限教材、VMスナップショット復元、アカウント認証は未実装です。VM用`local`モードは現時点では無効です。HTTP入力をシェルへ渡す処理や実PLC／ポンプへの接続は実装していません。
+24時間の期限、ヒント・操作の直近100件の履歴、各課題の1分10試行を保持します。開始制限もブラウザのCookie単位で1分10回です。未提出の入力途中テキストは保存しません。履歴にFLAG入力値は保存しません。

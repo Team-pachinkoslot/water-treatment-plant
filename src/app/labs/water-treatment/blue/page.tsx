@@ -18,8 +18,8 @@ export default function BluePage() {
     <aside className="aqua-alert"><strong>サンプルアラート：{alert.title}</strong><p>{alert.message}</p><p>判定ルール：表示値とモデル値の差が{alert.trigger.threshold}パーセントポイントを超えるサンプルが{alert.trigger.consecutiveSamples}回連続。ゲーム内の仮の判定値であり、実設備の安全基準ではありません。</p></aside>
     <AquaTelemetry samples={readTelemetry()} />
     <section className="aqua-intro"><h2>対応フロー / 手順のプレビュー</h2><p>初期状態の想定：anomaly_detected（異常検知）。以下は説明のみで、状態は変更されません。本操作は訓練用モデル内にのみ反映される設計です。実際の設備は操作しません。</p></section>
-    <ol className="aqua-actions">{aquaScenario.blueActions.map((action,i) => <li key={action.code} className="panel"><div className="eyebrow">STEP 0{i + 1}</div><h3>{action.label}</h3><p>{explanations[i]}</p><p className="aqua-state">{action.from} → {action.to}</p><button className="button disabled" disabled>{action.label}（準備中）</button></li>)}</ol>
+    <ol className="aqua-actions">{aquaScenario.blueActions.map((action,i) => <li key={action.code} className="panel"><div className="eyebrow">STEP 0{i + 1}</div><h3>{action.label}</h3><p>{explanations[i]}</p><p className="aqua-state">{action.from} → {action.to}</p><button className="button disabled" disabled>{action.label}（プレビュー）</button></li>)}</ol>
     <AquaTelemetry samples={readTelemetry(true)} recovery />
-    <section className="panel aqua-report"><h2>防御レポートに残すこと</h2><p>不一致の系列・UTC時刻と検知根拠、隔離対象、選択した対応、3連続正常サンプル、復旧条件を整理します。復旧確認用データは教材であり、復旧完了の証拠ではありません。レポートの保存・提出は準備中です。</p></section>
+    <section className="panel aqua-report"><h2>防御レポートに残すこと</h2><p>不一致の系列・UTC時刻と検知根拠、隔離対象、選択した対応、3連続正常サンプル、復旧条件を整理します。復旧確認用データは教材であり、復旧完了の証拠ではありません。レポートの保存・提出は演習画面で行います。</p></section>
   </AquaFrame>;
 }

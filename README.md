@@ -1,117 +1,107 @@
 # ICS Lab / PROJECT AQUA
 
-七王子市の架空施設を舞台にした学習アプリです。添付「PROJECT_AQUA_LAB01_Scenario_v1.0」に基づく教材プレビューに、利用者指定の**実VMを使わないブラウザ内テスト演習**を追加しています。既存の市名指定を優先し、添付の青葉市は七王子市へ統一しています。
+七王子市の架空施設を舞台にしたブラウザ演習です。添付シナリオの5段階Red Team調査とBlue Teamの異常確認・隔離・模擬復旧を、**Linux・VM・外部DBを使わずVercel上で実行**できます。
 
-## 起動
+`/labs/water-treatment`の「演習を開始」を押すと、新規演習を開始するか、このブラウザに保存された進捗を再開します。LAB 01は利用可能、LAB 02/03は準備中です。ID・slug・名称を維持し、市名は従来の指定に合わせて七王子市へ統一しています。所要時間はRed 30分 + Blue 20分 = 合計50分です。
 
-Node.js 24を推奨します。組み込みSQLiteを使用するため、Node.js 22系は22.13以降が必要です。
+## Vercelへの反映
+
+通常のNext.jsアプリとしてこのリポジトリを再デプロイしてください。
+
+- Install Command：`npm ci`
+- Build Command：`npm run build`
+- Node.js：24.xを推奨（22.13以降の22系も対応）。
+- 外部DB、Linuxサーバー、SSH、ストレージサービスの設定は不要です。
+- `LAB_RUNTIME_MODE`未指定で演習が有効になります。以前`disabled`を登録した場合は削除するか、`simulator`へ変更して再デプロイしてください。
+
+ビルド前に`scripts/prepare-session-key.mjs`が秘密鍵を生成し、`.aqua/session-key.json`へ保存します。`.aqua/`はGit対象外です。Next.jsの`outputFileTracingIncludes`により鍵と固定教材をサーバーFunctionだけへ同梱します。秘密鍵・FLAG一覧・管理者回答はブラウザ用JSや公開HTMLへ含めません。
+
+既定の鍵はデプロイごとに変わります。再デプロイをまたいで演習を継続させたい場合のみ、Vercelの環境変数`AQUA_SESSION_KEY`へ暗号学的乱数の64桁16進文字列を登録します。`NEXT_PUBLIC_`は付けません。鍵を変更・削除すると、それまでの保存済み演習は再開できなくなります。
+
+この作業環境にはVercel CLIの認証・対象プロジェクト設定がないため、今回の変更の公開反映は未実施です。
+
+## ローカルで確認
+
+Node.js 24を推奨します。
 
 ```sh
 npm ci
-npm run dev:simulator
-```
-
-[テスト演習](http://127.0.0.1:3000/labs/water-treatment/practice)を開き、「テスト演習を開始」を押してください。VMの用意は不要です。通常の開発サーバーが3000番を使用している場合は、停止して切り替えるか、`npm run dev:simulator -- --port 3010`で別のポートを使います。
-
-教材の閲覧のみで起動する場合は以下です。
-
-```sh
 npm run dev
 ```
 
-`.env.example`の既定値は`LAB_RUNTIME_MODE=disabled`です。`simulator`を明示した場合だけテスト操作を受け付けます。未指定・未知の値は無効になります。開発・本番のサーバーは127.0.0.1にバインドします。
-
-本番ビルドでのテスト：
+[LAB 01](http://127.0.0.1:3000/labs/water-treatment)から「演習を開始」を押してください。特別な環境変数の設定なしで動きます。教材閲覧だけに制限する場合は`LAB_RUNTIME_MODE=disabled`で起動します。未知のモードも無効です。
 
 ```sh
 npm run build
-npm run start:simulator
+npm run start
 ```
 
-## テスト演習でできること
+## 実装した演習
 
-1. ブラウザ専用の24時間セッションを開始する。
-2. 偵察 → Web調査 → 情報発見 → 内部調査 → 証拠回収の順に、教材を閲覧しFLAGと根拠を提出する。
-3. Stage 05で模擬アクセスログの送信元と最初の401応答のUTC時刻を答え、正答後にFLAGを取得する。
-4. 5FLAG完了後に調査レポートを提出する。
-5. Blue Teamで3連続の不一致を説明し、異常確認 → 入力隔離 → 安全モード → 3連続正常サンプル確認 → 模擬復旧の順に操作する。
-6. 防御レポートを提出し、得点・操作履歴・保存済みレポートを確認する。結果はJSONでダウンロードできる。
-7. 再読込で提出済み進捗を復元する。リセットでは現在のセッションとFLAGを無効化し、新規セッションへ切り替える。
+1. 24時間有効のセッションを開始。
+2. 偵察 → Web調査 → 情報発見 → 内部調査 → 証拠回収の順に、解放された教材だけを閲覧。
+3. 各ステージのFLAGと必要な根拠を提出。Stage 05は模擬ログの送信元・最初の401のUTC時刻が正答した場合だけFLAGを取得。
+4. 5FLAG後に調査レポートを提出。
+5. Blue Teamで3連続不一致の根拠を説明し、確認 → 入力隔離 → 安全モード → 3連続正常サンプル確認 → 模擬復旧。
+6. 防御レポートを提出し、得点・履歴・レポートを確認。結果はJSONで保存可能。
+7. 同じブラウザで再開、またはリセットして新規セッションへ移行。
 
-画面に表示するHTMLソースやLinuxファイルは**文字列の教材**です。シェル・SSH・VM・実設備の操作は行いません。Stage 03は情報露出の例示で、パスワード自体は発行しません。
+HTML・Linuxファイル・アクセスログ・センサー値は教材です。コマンドやSSH接続、設備操作は実行しません。教材のイベント日時は2026-11-02の固定された架空イベント（UTC）。15パーセントポイント・3連続は教材内の仮の判定値です。
 
-採点はRed FLAG 40点、調査レポート項目の充足10点、Blue対応42点、検知根拠と防御レポート項目の充足8点、合計100点です。レポートは各4項目を10文字以上4000文字以内で記入したかを評価します。文章の妥当性や証拠品質を自動判定するものではなく、講師の確認が必要です。
+## 保存方式
 
-## モードと保存
+進捗はサーバーがAES-256-GCMで暗号化・認証し、ブラウザのlocalStorageへ保存します。HttpOnly / SameSite=Strict Cookieが所有者と最新チェックポイントを保持し、HTTPSではSecureも付与します。FLAG検証・証拠検証・採点は毎回サーバーで行います。
 
-| 項目 | disabled | simulator |
-| --- | --- | --- |
-| 教材プレビュー | 閲覧可能 | 閲覧可能 |
-| テストセッション・提出・模擬状態変更 | 503 / RUNTIME_NOT_CONFIGURED | ローカルで利用可能 |
-| VM・SSH・設備接続 | なし | なし |
-| カタログの状態 | coming_soon | coming_soon（実VM演習は未公開） |
+各Functionは暗号化状態から**メモリ内SQLite**を復元し、処理結果を新しい暗号化状態として返します。実行時のSQLiteファイルへの書き込みや、特定Functionのメモリの継続利用はありません。ローカルSQLiteファイル版は内部アダプターの検証用として残していますが、Web APIは常にブラウザ保存方式を使います。
 
-進捗・レポート・セッション固有FLAGは`.local/aqua.sqlite`に保存します。`.local/`はGit対象外です。SQLiteはファイル権限0600、親ディレクトリ新規作成時0700で扱います。再起動後も同じファイルから復元します。Cookieを削除した場合やホスト名をlocalhostと127.0.0.1の間で変更した場合は、同じセッションへ復帰できません。レポートの未提出の入力中テキストは保存しません。
+- 再読込・別Functionからの処理でも、同じCookieと保存データで継続できます。
+- ブラウザデータ／Cookieの削除、別ブラウザ・別ドメインへの移動で進捗は引き継げません。
+- 未提出の入力中テキストは保存しません。
+- 改変された暗号化状態や、現在のCookieに対応しない古い状態は拒否します。失敗した提出も新しい状態として保存し、試行回数を保持します。
+- 中央データストアはありません。講師による一括集計・複数端末同期・厳密な不正対策・過去のCookieと状態を丸ごとコピーした履歴の一括失効は対象外です。学習用の自己確認方式です。
 
-認証はHttpOnly / SameSite=StrictのセッションCookieによる所持確認です。アカウント認証ではありません。セッション・ステージ単位の暗号学的乱数FLAGを生成し、対応する教材だけで配信します。状態APIにFLAG一覧・Cookie秘密値は含めません。変更APIではローカルHostとOriginを検証し、他人のセッション・不正順序・証拠不足を拒否します。FLAGとStage 05根拠回答は各1分10試行、開始は全体で1分10回に制限し、ヒントと結果を監査履歴へ残します。提出されたFLAG入力値は履歴に記録しません。
+FLAGとStage 05根拠回答は各セッションの課題ごとに1分10回、開始はブラウザのCookieごとに1分10回に制限します。Cookieを消去した利用者を追跡する全体レート制限ではありません。
 
-## 画面・API
+## 採点
+
+Red FLAG 40点、調査レポート項目の充足10点、Blue対応42点、検知根拠と防御レポート項目の充足8点、合計100点です。レポート4項目を各10〜4000文字で記入したかを評価します。文章の妥当性や証拠品質は講師の確認が必要です。
+
+## 画面
 
 | パス | 内容 |
 | --- | --- |
-| `/`、`/labs` | 概要、既存3ラボ、検索・フィルター |
-| `/labs/[slug]` | シナリオ概要、安全ルール、テスト演習への導線 |
-| `/labs/water-treatment/red` | Red Teamの固定教材プレビュー |
-| `/labs/water-treatment/blue` | 固定JSONLの監視グラフ・表・手順説明 |
-| `/labs/water-treatment/results` | 実VM演習の未公開案内、テスト結果への導線 |
-| `/labs/water-treatment/practice` | ブラウザ内テストの開始・進行・結果・保存 |
+| `/`、`/labs` | 概要と3ラボのカタログ |
+| `/labs/water-treatment` | 有効な「演習を開始」ボタン、ストーリー、安全ルール |
+| `/labs/water-treatment/practice?start=1` | 新規開始または再開 |
+| `/labs/water-treatment/red`、`/blue` | 固定教材のプレビュー。演習画面へのリンクを表示 |
+| `/labs/water-treatment/results` | 保存済み演習の結果画面へ移動 |
 | `/dashboard`、`/guide` | 既存の固定モック監視と学習ガイド |
-| `GET /api/health` | アプリ状態、実VM未接続、テストランタイムのモード |
-| `GET /api/labs`、`GET /api/labs/[slug]` | 共通カタログ |
-| `/api/lab-sessions`以下 | Cookie所有権確認付きの演習API。詳細は[実行契約](docs/aqua-runtime.md) |
+| `GET /api/health` | VM未接続とブラウザ演習モードを分けて表示 |
 
-共通カタログは`src/lib/labs.ts`です。`water-01 / water-treatment`、`power-01 / power-substation`、`rail-01 / railway-operations`のID・slug・表示名を維持しています。LAB 01はRed 30分 + Blue 20分 = 50分です。
-
-教材日時は2026-11-02の固定された架空イベントで、UTCで表示します。15パーセントポイント・3連続は教材内の判定値です。実施設の安全基準を表しません。既存のApp RouterとCSSを再利用し、新しい外部依存は追加していません。
+API・実行契約は[docs/aqua-runtime.md](docs/aqua-runtime.md)を参照してください。
 
 ## 主な変更ファイル
 
-- `src/components/aqua-practice.tsx`、`src/app/labs/water-treatment/practice/page.tsx`：テスト操作画面。
-- `src/lib/scenarios/simulator.server.ts`：SQLite保存、FLAG・根拠照合、採点、状態遷移、リセット。
-- `src/lib/scenarios/runtime.server.ts`、`errors.server.ts`、`session-types.ts`：モード選択・実行契約・公開型。
-- `src/lib/scenarios/http.server.ts`、`src/app/api/lab-sessions/`：Cookie所有権、Origin、入力サイズの検証とAPI。
-- `fixtures/red/logs/aqua-access.log`：添付の架空ログ。サーバー側から解放済みStage 05にのみ配信。
-- `src/components/{aqua-frame,lab-detail}.tsx`、`src/app/globals.css`、`src/app/labs/water-treatment/results/page.tsx`：導線・表示。
-- `src/app/api/health/route.ts`：実VMとテストランタイムの状態を区別。
-- `tests/{scenario,simulator}.test.ts`、`scripts/smoke-simulator.mjs`：単体・統合検証。
-- `.gitignore`、`.env.example`、`package.json`、`docs/aqua-runtime.md`、`README.md`：保存除外・起動・仕様。
+- `src/components/lab-detail.tsx`、`src/app/labs/[slug]/page.tsx`：開始ボタンの有効化と公開状態。
+- `src/components/{aqua-practice,aqua-frame,lab-card,catalog}.tsx`、`src/lib/labs.ts`：自動開始・再開、ブラウザ保存、利用可能表示。
+- `src/lib/scenarios/{http.server,cloud-state.server,simulator.server,runtime.server}.ts`：HTTPS対応、暗号化チェックポイント、メモリ内実行、既定有効化。
+- `src/app/labs/water-treatment/{practice,red,blue,results}/page.tsx`：演習・教材・結果の導線。
+- `scripts/prepare-session-key.mjs`、`next.config.ts`、`package.json`、`.env.example`、`.gitignore`：Vercelビルドと鍵のサーバー同梱。
+- `tests/cloud-session.test.ts`、既存テスト、`scripts/smoke-simulator.mjs`：新方式の検証。
 
 ## 検証
 
-今回、以下を実行して成功しました。
+以下は今回成功しました。
 
 ```sh
 npm run lint
 npm run typecheck
-npm test                       # 29件成功
+npm test                         # 33件成功
 npm run build
-```
-
-起動中の本番サーバーに対する検証：
-
-```sh
 npm run test:smoke -- http://127.0.0.1:3010
 npm run test:smoke -- http://127.0.0.1:3012 --disabled
 ```
 
-前者は`simulator`、後者は`disabled`で起動したサーバーを指定します。開始、5FLAG、2種類のレポート、順序と証拠の拒否、100点到達、進捗再取得、リセット、旧セッション拒否、既存ページと実VM未接続を確認しました。スモークテストは自身のテストセッションを作成し、終了時に新規状態へリセットします。
+スモークテストは、既定有効／明示disabledの本番サーバーを別々のポートで起動して実施しています。開始から5FLAG、2種類のレポート、順序・根拠検証、100点到達、進捗再開、リセットを確認しました。単体テストではHTTPSのVercelドメイン、Cookie、Origin、暗号化状態の改変・旧チェックポイント拒否、試行制限、リクエストサイズ制限も確認しています。
 
-単体テストでは、別セッションのFLAG拒否、保存ファイル再読込、期限切れ、試行回数制限、ヒント監査、Cookie所有権、Origin検証、入力サイズ制限も確認しています。
-
-ブラウザ接続機能は利用できず、ネイティブChromeで初期画面を確認しましたが、ブラウザ操作と競合したため一連のクリック検証は未完了です。接続判定の修正後はHTTPで全フローを確認しました。PC／モバイルの最終的な見た目とダウンロード操作は未検証です。
-
-## 次の実装範囲
-
-実VMの起動・SSH・VM教材の配置・Host-onlyとホスト側経路の検証・スナップショット復元は未実装です。演習専用Kali ARM64 / Ubuntu ARM64が用意された段階で、固定の管理処理と許可リストを使うVMware Fusionアダプターを追加します。ブラウザテストの完了はVM隔離の検証完了を意味しません。
-
-複数利用者向けアカウント認証・講師評価・共有ホスティング、LAB 02/03の実行環境も後続範囲です。テストモードはローカル専用です。
+Functionのファイルトレースで秘密鍵と教材の同梱を確認しています。ブラウザ接続機能が利用できず、実画面のクリック検証は未完了です。Vercel上での公開デプロイ・実URLでの受入確認も未実施です。

@@ -5,7 +5,7 @@ import { readTelemetry, readTrainingAlert } from "../src/lib/scenarios/telemetry
 import { getLab } from "../src/lib/labs";
 
 describe("AQUA runtime boundary", () => {
-  it.each([undefined, "disabled", "mock", "enabled"])("rejects every mutation for mode %s", async mode => {
+  it.each(["disabled", "mock", "enabled"])("rejects every mutation for mode %s", async mode => {
     const runtime = getScenarioRuntime(mode);
     expect(runtime.mode).toBe("disabled");
     for (const operation of [runtime.start("water-01"), runtime.submitFlag({ sessionId: "untrusted-session", token: "" }, "S05", "untrusted-input"), ...aquaScenario.blueActions.map(a => runtime.performBlueAction({ sessionId: "untrusted-session", token: "" }, a.code))]) {
@@ -17,7 +17,7 @@ describe("AQUA runtime boundary", () => {
 
 describe("AQUA learner data", () => {
   it("integrates five stages and 50 minutes without changing catalog identity", () => {
-    expect(getLab(aquaScenario.slug)).toMatchObject({ id: aquaScenario.id, durationMinutes: 50, status: "coming_soon" });
+    expect(getLab(aquaScenario.slug)).toMatchObject({ id: aquaScenario.id, durationMinutes: 50, status: "available" });
     expect(aquaScenario.redStages.map(s => s.id)).toEqual(["S01", "S02", "S03", "S04", "S05"]);
     expect(aquaScenario.redStages.every(s => s.hints.length === 3 && s.report)).toBe(true);
   });

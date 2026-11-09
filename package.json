@@ -3,13 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --hostname 127.0.0.1",
-    "build": "next build",
+    "dev": "node scripts/prepare-session-key.mjs && next dev --hostname 127.0.0.1",
+    "build": "node scripts/prepare-session-key.mjs && next build",
     "start": "next start --hostname 127.0.0.1",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "dev:simulator": "LAB_RUNTIME_MODE=simulator next dev --hostname 127.0.0.1",
+    "dev:simulator": "LAB_RUNTIME_MODE=simulator npm run dev",
     "start:simulator": "LAB_RUNTIME_MODE=simulator next start --hostname 127.0.0.1",
     "test:smoke": "node scripts/smoke-simulator.mjs"
   },

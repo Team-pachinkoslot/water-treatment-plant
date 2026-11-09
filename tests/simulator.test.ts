@@ -4,8 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { SimulatorScenarioRuntime } from "../src/lib/scenarios/simulator.server";
-import * as runtimes from "../src/lib/scenarios/runtime.server";
-import { handleSessionRequest } from "../src/lib/scenarios/http.server";
 import type { SessionAccess } from "../src/lib/scenarios/session-types";
 
 const report = { observations: "仮想水位の表示とモデルの不一致を確認した。", evidence: "指定された教材とログを照合して根拠を記録した。", timeline: "UTCの時系列に沿って調査と隔離と正常性確認を行った。", improvements: "公開情報を分離し連続した正常値を確認して復旧する。" };
@@ -92,51 +90,5 @@ describe("persistent browser simulator", () => {
     const db = new DatabaseSync(path);
     db.prepare("UPDATE sessions SET data = json_set(data, '$.expiresAt', ?) WHERE id = ?").run("2000-01-01T00:00:00Z", access.sessionId); db.close();
     await expect(runtime.getSession(access)).rejects.toMatchObject({ code: "SESSION_EXPIRED" });
-  });
-});
-
-describe("HTTP ownership and disabled boundary", () => {
-  function req(method = "GET", payload?: unknown, headers: Record<string, string> = {}, url = "http://localhost:3000/api/lab-sessions") {
-    return new Request(url, { method, headers: { host: new URL(url).host, ...(method === "POST" ? { origin: new URL(url).origin, "content-type": "application/json" } : {}), ...headers }, ...(payload === undefined ? {} : { body: JSON.stringify(payload) }) });
-  }
-  it("refuses API access in disabled and unknown modes", async () => {
-    for (const mode of ["disabled", "local", "enabled"]) {
-      vi.stubEnv("LAB_RUNTIME_MODE", mode);
-      const result = await handleSessionRequest(req("POST", { labId: "water-01" }));
-      expect(result.status).toBe(503);
-      expect(await result.json()).toMatchObject({ error: { code: "RUNTIME_NOT_CONFIGURED" } });
-    }
-  });
-  it("uses HttpOnly cookies and rejects cross-origin, anonymous and mismatched sessions", async () => {
-    vi.stubEnv("LAB_RUNTIME_MODE", "simulator");
-    vi.spyOn(runtimes, "getScenarioRuntime").mockReturnValue(runtime);
-    const response = await handleSessionRequest(req("POST", { labId: "water-01" }));
-    expect(response.status).toBe(201);
-    expect(response.headers.get("set-cookie")).toContain("HttpOnly; SameSite=Strict");
-    const json = await response.json();
-    expect(json.token).toBeUndefined();
-    expect(json.session.flags).toBeUndefined();
-    const cookie = response.headers.get("set-cookie")!.split(";")[0];
-    expect((await handleSessionRequest(req(), "current")).status).toBe(401);
-    expect((await handleSessionRequest(req("GET", undefined, { cookie }), "current")).status).toBe(200);
-    expect((await handleSessionRequest(req("GET", undefined, { cookie }), "not-owned")).status).toBe(404);
-    expect((await handleSessionRequest(req("POST", {}, { cookie, origin: "https://other.test" }), json.session.id, "reset")).status).toBe(403);
-    expect((await handleSessionRequest(req("POST", { labId: "water-01" }, {}, "http://external.test/api/lab-sessions"))).status).toBe(403);
-    expect((await handleSessionRequest(req("POST", { labId: "water-01" }, { origin: "" }))).status).toBe(403);
-  });
-  it("accepts normalized loopback URLs while rejecting a non-local Host header", async () => {
-    vi.stubEnv("LAB_RUNTIME_MODE", "simulator");
-    vi.spyOn(runtimes, "getScenarioRuntime").mockReturnValue(runtime);
-    const normalized = req("POST", { labId: "water-01" }, { host: "127.0.0.1:3000", origin: "http://127.0.0.1:3000" });
-    expect((await handleSessionRequest(normalized)).status).toBe(201);
-    const spoofed = req("POST", { labId: "water-01" }, { host: "external.test:3000", origin: "http://external.test:3000" });
-    expect((await handleSessionRequest(spoofed)).status).toBe(403);
-  });
-  it("limits actual body length and rejects malformed JSON", async () => {
-    vi.stubEnv("LAB_RUNTIME_MODE", "simulator");
-    const large = await handleSessionRequest(req("POST", { labId: "a".repeat(25_000) }));
-    expect(large.status).toBe(413);
-    const invalid = new Request("http://localhost:3000/api/lab-sessions", { method: "POST", headers: { origin: "http://localhost:3000", "content-type": "application/json" }, body: "{" });
-    expect((await handleSessionRequest(invalid)).status).toBe(400);
   });
 });

@@ -83,14 +83,40 @@ function stage5Answer() {
 
 export class SimulatorScenarioRuntime implements ScenarioRuntimeAdapter {
   readonly mode = "simulator" as const;
+  private memoryDb?: DatabaseSync;
   constructor(private readonly databasePath = resolve(process.cwd(), ".local/aqua.sqlite")) {}
 
   private open() {
-    mkdirSync(dirname(this.databasePath), { recursive: true, mode: 0o700 });
+    if (this.memoryDb) return this.memoryDb;
+    const memory = this.databasePath === ":memory:";
+    if (!memory) mkdirSync(dirname(this.databasePath), { recursive: true, mode: 0o700 });
     const db = new DatabaseSync(this.databasePath, { timeout: 5000 });
-    chmodSync(this.databasePath, 0o600);
+    if (!memory) chmodSync(this.databasePath, 0o600);
     db.exec("PRAGMA journal_mode = WAL; CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS starts (at INTEGER NOT NULL);");
+    if (memory) this.memoryDb = db;
     return db;
+  }
+  private release(db: DatabaseSync) { if (db !== this.memoryDb) db.close(); }
+  dispose() { this.memoryDb?.close(); this.memoryDb = undefined; }
+
+  // A Vercel request uses a fresh in-memory DB. No writable filesystem or shared process is needed.
+  static fromCloudSnapshot(snapshot?: string, starts: number[] = []) {
+    const runtime = new SimulatorScenarioRuntime(":memory:");
+    const db = runtime.open();
+    if (snapshot) {
+      const data = JSON.parse(snapshot) as { version: number; sessions: { id: string; data: string }[] };
+      if (data.version !== 1 || !Array.isArray(data.sessions) || data.sessions.length !== 1) {
+        runtime.dispose();
+        fail("INVALID_CLOUD_STATE", "演習データの形式が正しくありません。", 409);
+      }
+      for (const row of data.sessions) db.prepare("INSERT INTO sessions(id, data) VALUES (?, ?)").run(row.id, row.data);
+    }
+    for (const at of starts) db.prepare("INSERT INTO starts(at) VALUES (?)").run(at);
+    return runtime;
+  }
+  cloudSnapshot() {
+    if (!this.memoryDb) fail("INVALID_CLOUD_STATE", "演習データがありません。", 409);
+    return JSON.stringify({ version: 1, sessions: this.memoryDb.prepare("SELECT id, data FROM sessions").all() });
   }
   private insert(db: DatabaseSync) {
     const token = randomBytes(32).toString("hex");
@@ -121,7 +147,7 @@ export class SimulatorScenarioRuntime implements ScenarioRuntimeAdapter {
         db.exec("COMMIT");
       } else db.exec("ROLLBACK");
       throw error;
-    } finally { db.close(); }
+    } finally { this.release(db); }
   }
   async start(labId: string) {
     if (labId !== "water-01") fail("LAB_NOT_FOUND", "テスト演習はLAB 01のみ対応しています。", 404);
@@ -136,7 +162,7 @@ export class SimulatorScenarioRuntime implements ScenarioRuntimeAdapter {
       const result = this.insert(db);
       db.exec("COMMIT");
       return result;
-    } catch (error) { db.exec("ROLLBACK"); throw error; } finally { db.close(); }
+    } catch (error) { db.exec("ROLLBACK"); throw error; } finally { this.release(db); }
   }
   async getSession(access: SessionAccess) { return this.transaction(access, s => view(s)); }
   async reset(access: SessionAccess) {

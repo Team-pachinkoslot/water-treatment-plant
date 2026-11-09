@@ -1,20 +1,30 @@
 import assert from "node:assert/strict";
 
 const base = new URL(process.argv[2] ?? "http://127.0.0.1:3000");
-assert(["127.0.0.1", "localhost", "[::1]"].includes(base.hostname), "Smoke tests must target a loopback server");
+assert(base.protocol === "https:" || ["127.0.0.1", "localhost", "[::1]"].includes(base.hostname), "Use HTTPS or a loopback server");
 const disabled = process.argv.includes("--disabled");
 let cookie = "";
+let cloudState = "";
+const cookies = new Map();
 let session;
 async function api(path = "", payload, expected = 200, useCookie = true) {
-  const response = await fetch(`${base.origin}/api/lab-sessions${path}`, {
-    method: payload === undefined ? "GET" : "POST",
-    headers: { ...(useCookie && cookie ? { cookie } : {}), ...(payload === undefined ? {} : { origin: base.origin, "content-type": "application/json" }) },
-    ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
+  const [pathname, query] = path.split("?");
+  const stageId = query ? new URLSearchParams(query).get("stageId") : undefined;
+  const normalized = pathname && pathname.split("/").filter(Boolean).length === 1 ? `${pathname}/restore` : pathname;
+  const response = await fetch(`${base.origin}/api/lab-sessions${normalized}`, {
+    method: "POST",
+    headers: { ...(useCookie && cookie ? { cookie } : {}), origin: base.origin, "content-type": "application/json" },
+    body: JSON.stringify({ ...(payload ?? {}), ...(stageId ? { stageId } : {}), ...(cloudState ? { cloudState } : {}) }),
   });
   assert.equal(response.status, expected, `Unexpected status for ${path}`);
   assert.match(response.headers.get("cache-control"), /no-store/);
   const data = await response.json();
-  if (response.headers.has("set-cookie")) cookie = response.headers.get("set-cookie").split(";")[0];
+  for (const entry of response.headers.getSetCookie()) {
+    const first = entry.split(";")[0]; const split = first.indexOf("=");
+    cookies.set(first.slice(0, split), first.slice(split + 1));
+  }
+  cookie = [...cookies].map(([k,v]) => `${k}=${v}`).join("; ");
+  if (data.cloudState) cloudState = data.cloudState;
   if (data.session) session = data.session;
   return data;
 }
@@ -23,6 +33,10 @@ for (const path of ["/", "/labs", "/labs/water-treatment", "/labs/water-treatmen
   assert.equal(response.status, 200);
   const html = await response.text();
   assert(!/AQUA\{S\d\d_[a-f0-9]+\}/.test(html), "Session flags leaked into page HTML");
+  if (path === "/labs/water-treatment" && !disabled) {
+    assert(html.includes('href="/labs/water-treatment/practice?start=1"'), "Start link is missing");
+    assert(html.includes("ブラウザで演習を始める"), "Available exercise panel is missing");
+  }
 }
 const health = await (await fetch(`${base.origin}/api/health`)).json();
 assert.equal(health.runtime.connected, false);
@@ -77,14 +91,10 @@ assert.equal(session.score.total, 100);
 const completed = session;
 await api("/current");
 assert.deepEqual(session, completed);
-const oldCookie = cookie;
 await api(`/${id}/reset`, {}, 201);
 assert.notEqual(session.id, id);
 assert.equal(session.score.total, 0);
-const freshCookie = cookie;
-cookie = oldCookie;
 await api(`/${id}`, undefined, 404);
-cookie = freshCookie;
 await api("/current");
 assert.equal(session.complete, false);
 console.log("Simulator: 5 flags, reports, ordered recovery, 100 points, reload and reset passed. No VM actions performed.");

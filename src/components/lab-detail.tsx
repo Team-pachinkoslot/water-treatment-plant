@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { Lab, stages } from "@/lib/labs";
 import { PlantDiagram } from "./plant-diagram";
-export function LabDetail({ lab }: { lab: Lab }) {
+export function LabDetail({ lab, exerciseEnabled = false }: { lab: Lab; exerciseEnabled?: boolean }) {
   const [tab, setTab] = useState("overview");
   const [openStage, setOpenStage] = useState<number | null>(0);
   const water = lab.category === "water";
@@ -46,10 +46,10 @@ export function LabDetail({ lab }: { lab: Lab }) {
         <PlantDiagram category={lab.category} />
       </section>
       {water && <nav className="aqua-nav" aria-label="PROJECT AQUA 教材">
-        <Link href="/labs/water-treatment/practice">テスト演習 →</Link>
+        <Link href="/labs/water-treatment/practice?start=1">演習を開始 →</Link>
         <Link href="/labs/water-treatment/red">Red Team / 5つの課題 →</Link>
         <Link href="/labs/water-treatment/blue">Blue Team / 監視モック →</Link>
-        <Link href="/labs/water-treatment/results">演習結果（準備中）</Link>
+        <Link href="/labs/water-treatment/results">演習結果</Link>
       </nav>}
       <div className="detail-layout">
         <div className="detail-main">
@@ -229,13 +229,11 @@ export function LabDetail({ lab }: { lab: Lab }) {
         <aside className="scenario-sidebar">
           <div className="panel">
             <div className="coming-soon">
-              <i className="dot amber" /> COMING SOON
+              <i className={`dot ${water && exerciseEnabled ? "cyan" : "amber"}`} /> {water && exerciseEnabled ? "BROWSER EXERCISE" : "COMING SOON"}
             </div>
-            <h3>演習環境を準備しています</h3>
-            <p>現在はシナリオのプレビューのみご覧いただけます。</p>
-            <button className="button disabled" disabled>
-              <LockKeyhole size={15} /> 演習を開始（準備中）
-            </button>
+            <h3>{water && exerciseEnabled ? "ブラウザで演習を始める" : "演習環境を準備しています"}</h3>
+            <p>{water && exerciseEnabled ? "Linuxの準備は不要です。5つの調査課題から模擬復旧まで、このサイト内で進められます。" : "現在はシナリオのプレビューをご覧いただけます。"}</p>
+            {water && exerciseEnabled ? <Link className="button primary" href="/labs/water-treatment/practice?start=1"><ArrowRight size={15} /> 演習を開始</Link> : <button className="button disabled" disabled><LockKeyhole size={15} /> 演習を開始（準備中）</button>}
             <dl>
               {water && <div><dt>所要時間</dt><dd>50分（Red 30 / Blue 20）</dd></div>}
               <div>
@@ -248,7 +246,7 @@ export function LabDetail({ lab }: { lab: Lab }) {
               </div>
               <div>
                 <dt>ステータス</dt>
-                <dd>準備中</dd>
+                <dd>{water && exerciseEnabled ? "ブラウザ演習公開中" : "準備中"}</dd>
               </div>
               <div>
                 <dt>実VMランタイム</dt>
