@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { aquaScenario } from "@/lib/scenarios/aqua";
 import { AquaTelemetry } from "./aqua-telemetry";
@@ -70,6 +70,13 @@ export function AquaPractice({ enabled, autoStart = false, initialTrack = "red",
   const [anomalyTimestamps, setAnomalyTimestamps] = useState("");
   const [recoveryTimestamps, setRecoveryTimestamps] = useState("");
   const [explanation, setExplanation] = useState("");
+  const [celebration, setCelebration] = useState<{ id: number; title: string; count: number } | null>(null);
+
+  useEffect(() => {
+    if (!celebration) return;
+    const timer = window.setTimeout(() => setCelebration(null), 2800);
+    return () => window.clearTimeout(timer);
+  }, [celebration]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -130,6 +137,17 @@ export function AquaPractice({ enabled, autoStart = false, initialTrack = "red",
     <div className="notice aqua-notice"><div><strong>実VM・設備への接続はありません</strong><br />Linuxに接続せず、教材の閲覧と模擬演習をブラウザで行います。進捗は暗号化してこのブラウザに保存されます。入力したコマンドは演習内で模擬実行し、実シェル・外部ホストへの接続は行いません。教材のイベント日時は2026-11-02の固定された架空データ（UTC）です。</div></div>
     {!enabled && <section className="panel aqua-report"><h2>演習は現在停止しています</h2><p>現在は教材プレビューを閲覧できます。演習が公開されるまでお待ちください。</p><button className="button disabled" disabled>演習を開始（停止中）</button></section>}
     {enabled && loading && <p role="status">保存済みの進捗を確認しています…</p>}
+    {celebration && <div key={celebration.id} className="flag-celebration" onClick={() => setCelebration(null)} aria-hidden="true">
+      <div className="flag-celebration-burst">{Array.from({ length: 12 }, (_, i) => <span key={i} style={{ "--i": i } as CSSProperties} />)}</div>
+      <div className="flag-celebration-card">
+        <svg className="flag-celebration-check" viewBox="0 0 52 52"><circle cx="26" cy="26" r="24" /><path d="M15 27l7 7 15-16" /></svg>
+        <div className="eyebrow">FLAG ACCEPTED</div>
+        <strong>正解！</strong>
+        <p>{celebration.title}をクリア</p>
+        <div className="flag-celebration-progress" aria-hidden="true">{Array.from({ length: 5 }, (_, i) => <i key={i} className={i < celebration.count ? (i === celebration.count - 1 ? "is-new" : "is-done") : ""} />)}</div>
+        <small>{celebration.count === 5 ? "5つのFLAGをすべて取得しました" : `FLAG ${celebration.count} / 5`}</small>
+      </div>
+    </div>}
     <div className="practice-feedback" aria-live="polite">{message && <p role="status">{message}</p>}{error && <p role="alert" className="practice-error">{error}</p>}</div>
     {enabled && !loading && !session && <section className="panel aqua-report"><h2>新しいブラウザ演習</h2><p>このブラウザ専用の演習を開始します。有効期限は24時間です。同じブラウザで再開できます。ブラウザの保存データを削除すると進捗は失われます。</p><button className="button primary" disabled={busy} onClick={() => void run(() => api("", { labId: "water-01" }), "演習を開始しました。")}>演習を開始</button></section>}
     {session && <>
@@ -147,7 +165,7 @@ export function AquaPractice({ enabled, autoStart = false, initialTrack = "red",
           {!activeStage && <p>このステージは提出済みです。端末で再調査するか、上のステージを切り替えてください。</p>}
           {activeStage && <>
             {stage.id === "S05" && <form className="practice-evidence" onSubmit={e => { e.preventDefault(); void run(() => api(`${path}/stage5-evidence`, { sourceIp, firstEventTimestampUtc: firstTime }), "ログの根拠回答を確認しました。払い出されたFLAGを提出してください。", data => setFlag(data.flag ?? "")); }}><fieldset disabled={busy}><legend>Stage 05 / ログの根拠回答</legend><label htmlFor="source-ip">不審な送信元IP<input id="source-ip" value={sourceIp} onChange={e => setSourceIp(e.target.value)} required /></label><label htmlFor="first-time">最初の401のUTC時刻（ISO 8601）<input id="first-time" value={firstTime} placeholder="YYYY-MM-DDTHH:mm:ssZ" onChange={e => setFirstTime(e.target.value)} required /></label><button className="button secondary" type="submit" disabled={busy}>根拠を検証してFLAGを取得</button></fieldset></form>}
-            <form className="practice-flag" onSubmit={e => { e.preventDefault(); void run(() => api(`${path}/flags`, { stageId: stage.id, flag, evidence: { ports, risk, permission } }), `${stage.title}を完了しました。`, () => { setFlag(""); setSelectedStage(null); }); }}><fieldset disabled={busy}><legend>FLAGと証拠を提出</legend>
+            <form className="practice-flag" onSubmit={e => { e.preventDefault(); void run(() => api(`${path}/flags`, { stageId: stage.id, flag, evidence: { ports, risk, permission } }), `${stage.title}を完了しました。`, data => { setFlag(""); setSelectedStage(null); setCelebration({ id: Date.now(), title: stage.title, count: data.session?.completedStages.length ?? 0 }); }); }}><fieldset disabled={busy}><legend>FLAGと証拠を提出</legend>
               {stage.id === "S01" && <label htmlFor="ports">公開ポート（カンマ区切り）<input id="ports" value={ports} onChange={e => setPorts(e.target.value)} required /></label>}
               {stage.id === "S03" && <label htmlFor="risk">情報公開のリスク（10文字以上）<textarea id="risk" value={risk} minLength={10} maxLength={4000} onChange={e => setRisk(e.target.value)} required /></label>}
               {stage.id === "S04" && <label htmlFor="permission">ファイル権限（数値または権限表示）<input id="permission" value={permission} onChange={e => setPermission(e.target.value)} required /></label>}
