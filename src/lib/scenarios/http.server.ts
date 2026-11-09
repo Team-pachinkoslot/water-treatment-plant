@@ -86,14 +86,18 @@ export async function handleSessionRequest(request: Request, id?: string, operat
     runtime = SimulatorScenarioRuntime.fromCloudSnapshot(snapshot, starts);
     const ok = (value: Record<string, unknown>) => response(value, request, 200, runtime, starts);
     if ((!operation && request.method === "GET") || (operation === "restore" && request.method === "POST")) return ok({ session: await runtime.getSession(access) });
-    if (operation === "materials") return ok({ ...await runtime.getMaterials(access, text(data.stageId)) });
+    if (operation === "materials") return fail("COMMAND_REQUIRED", "教材はターミナルのコマンドで調査してください。", 409);
+    if (operation === "commands") return ok(await runtime.executeCommand(access, text(data.stageId), text(data.command)));
     if (request.method !== "POST") return fail("NOT_FOUND", "操作が見つかりません。", 404);
     if (operation === "reset") {
       const started = await runtime.reset(access);
       return response({ session: started.session }, request, 201, runtime, starts, started);
     }
     if (operation === "flags") return ok({ session: await runtime.submitFlag(access, text(data.stageId), text(data.flag), evidenceFields(data.evidence)) });
-    if (operation === "hints") return ok(await runtime.getHint(access, text(data.stageId), typeof data.index === "number" ? data.index : -1));
+    if (operation === "hints") {
+      const hint = await runtime.getHint(access, text(data.stageId), typeof data.index === "number" ? data.index : -1);
+      return ok({ ...hint, session: await runtime.getSession(access) });
+    }
     if (operation === "stage5-evidence") return ok(await runtime.stage5Evidence(access, { sourceIp: text(data.sourceIp), firstEventTimestampUtc: text(data.firstEventTimestampUtc) }));
     if (operation === "report") {
       const fields = evidenceFields(data.report);

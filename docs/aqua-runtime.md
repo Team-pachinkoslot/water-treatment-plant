@@ -25,8 +25,9 @@ Function内はリクエストごとのメモリ内SQLiteです。前回Function�
 | POST /api/lab-sessions | labId=water-01 | 新規セッションとCookie、暗号化状態を発行 |
 | POST /api/lab-sessions/current/restore | — | 保存済み演習を再開 |
 | POST /api/lab-sessions/{sessionId}/restore | — | 所有セッションの進捗取得 |
-| POST /api/lab-sessions/{sessionId}/materials | stageId | 解放済みステージだけの教材を返す |
-| POST /api/lab-sessions/{sessionId}/hints | stageId, index(0〜2) | ヒント利用を記録 |
+| POST /api/lab-sessions/{sessionId}/commands | stageId, command | 模擬コマンドを解釈し、出力・図解用メタ情報・更新したセッションを返す |
+| POST /api/lab-sessions/{sessionId}/materials | stageId | 直接閲覧を廃止。409 / COMMAND_REQUIREDを返す |
+| POST /api/lab-sessions/{sessionId}/hints | stageId, index(0〜2) | 進捗に応じた考え方・構文・実行例を生成し、利用を記録 |
 | POST /api/lab-sessions/{sessionId}/flags | stageId, flag, evidence | FLAGと根拠を検証 |
 | POST /api/lab-sessions/{sessionId}/stage5-evidence | sourceIp, firstEventTimestampUtc | 正答時のみStage 05 FLAGを払い出す |
 | POST /api/lab-sessions/{sessionId}/blue-actions | action, timestamps?, explanation? | 模擬状態を遷移 |
@@ -36,6 +37,16 @@ Function内はリクエストごとのメモリ内SQLiteです。前回Function�
 読み取り操作も大きな暗号化状態をCookieやHTTPヘッダーへ入れず、本文で渡すためPOSTにしています。リクエストのキー・入力形式・所有者確認はサーバー側で処理します。未開始401、別セッション404、期限切れ410、不正遷移／古い状態409、試行制限429です。
 
 `evidence`はS01で`ports`、S03で`risk`、S04で`permission`を使用します。S05は事前に根拠回答が検証されている必要があります。FLAG正解一覧は平文のセッションDTOへ含めず、各教材やS05根拠検証成功時だけ該当FLAGを返します。
+
+## 模擬ターミナル
+
+`terminal.server.ts`は文字列をトークン化して既定の教材へ対応付けるインタープリターです。シェル、eval、subprocess、ネットワーク通信は呼び出しません。`nmap/curl/ssh/pwd/whoami/ls/cd/cat/grep/head/exit/clear/help`だけをサポートします。対象は`aqua.lab.test`、HTTPポート8080、学習用の仮想ファイルです。
+
+`commands`は、入力コマンド、出力、exitCode、操作scene、説明、更新したterminal状態とsessionを返します。コマンドの入力エラーはHTTP 200 / exitCode 1で端末に表示し、接続先・cwd・観測済み項目は変更しません。セッション不正・未解放ステージは通常のHTTPエラーです。コマンドは512文字以内、1分60回までです。
+
+`session.terminal`は`host`、`cwd`、`observations`、`commandCount`、`lastError`です。既存セッションで未設定なら初期状態へ補完します。FLAG提出には各ステージの必須観測が必要で、未調査なら`COMMAND_REQUIRED`です。S05の根拠回答にもログの読み取りと絞り込みを要求します。
+
+`hints`は`hint`、`step`、`explanation`、`level`、任意の`command`と更新したsessionを返します。外部AI APIは使わず、サーバーが進捗と入力エラーに対応する説明・次の操作例を組み立てます。端末の表示履歴と入力履歴はブラウザメモリだけに置き、暗号化状態や監査履歴へFLAG出力や入力コマンド文字列を保存しません。
 
 ## 状態と得点
 

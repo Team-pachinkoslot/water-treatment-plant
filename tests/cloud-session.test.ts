@@ -1,3 +1,4 @@
+import { commandFlows } from "./command-flows";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { randomBytes } from "node:crypto";
 import { handleSessionRequest } from "../src/lib/scenarios/http.server";
@@ -31,13 +32,18 @@ class Browser {
 const report = { observations: "表示値と独立したモデルに不一致を認めた。", evidence: "模擬ログと独立した観測値を比較して証拠を記録した。", timeline: "UTCの順番で調査、隔離、安全モード、正常確認を行った。", improvements: "公開情報を分離し復旧条件を確認してから正常監視へ戻す。" };
 async function solveRed(browser: Browser) {
   for (const stageId of ["S01", "S02", "S03", "S04", "S05"]) {
-    const material = await browser.call("materials", { stageId });
-    expect(material.response.status).toBe(200);
+    let output = "";
+    for (const command of commandFlows[stageId]) {
+      const executed = await browser.call("commands", { stageId, command });
+      expect(executed.response.status).toBe(200);
+      expect(executed.data.result.exitCode).toBe(0);
+      output += executed.data.result.output + "\n";
+    }
     let flag;
     if (stageId === "S05") {
       const evidence = await browser.call("stage5-evidence", { sourceIp: "198.51.100.23", firstEventTimestampUtc: "2026-11-02T00:03:00Z" });
       expect(evidence.response.status).toBe(200); flag = evidence.data.flag;
-    } else flag = material.data.files.map((f: { content: string }) => f.content).join("\n").match(/AQUA\{[^}]+\}/)[0];
+    } else flag = output.match(/AQUA\{[^}]+\}/)![0];
     const result = await browser.call("flags", { stageId, flag, evidence: { ports: "22,8080", risk: report.improvements, permission: "0444" } });
     expect(result.response.status).toBe(200);
   }
@@ -95,6 +101,25 @@ describe("Vercel-only exercise transport", () => {
     await browser.call("hints", { stageId: "S01", index: 0 });
     browser.cloudState = original;
     expect((await browser.call("restore")).data.error.code).toBe("STALE_CLOUD_STATE");
+  });
+  it("requires terminal commands instead of direct material reads and generates the next hint", async () => {
+    const browser = new Browser(); await browser.call("", { labId: "water-01" });
+    expect((await browser.call("materials", { stageId: "S01" })).data.error.code).toBe("COMMAND_REQUIRED");
+    const first = await browser.call("hints", { stageId: "S01", index: 2 });
+    expect(first.data.command).toContain("nmap");
+    const executed = await browser.call("commands", { stageId: "S01", command: first.data.command });
+    expect(executed.data.result.scene).toBe("recon");
+    expect(executed.data.session.terminal.observations).toContain("S01:services");
+    const next = await browser.call("hints", { stageId: "S01", index: 2 });
+    expect(next.data.command).toContain("/training/discovery");
+    const rejected = await browser.call("commands", { stageId: "S01", command: "curl https://outside.test" });
+    expect(rejected.data.result.exitCode).toBe(1);
+    expect(rejected.data.result.scene).toBe("blocked");
+    const contextual = await browser.call("hints", { stageId: "S01", index: 0 });
+    expect(contextual.data.hint).toContain("aqua.lab.test");
+    const restored = await browser.call("restore");
+    expect(restored.data.session.terminal.observations).toContain("S01:services");
+    expect(JSON.stringify(restored.data.session.events)).not.toContain("outside.test");
   });
   it("authenticates the encrypted payload even with a valid checkpoint digest", async () => {
     const browser = new Browser(); await browser.call("", { labId: "water-01" });

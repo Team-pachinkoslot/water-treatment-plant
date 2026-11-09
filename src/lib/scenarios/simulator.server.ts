@@ -1,3 +1,5 @@
+import { simulateCommand } from "./terminal.server";
+import { initialTerminal, generateCommandHint, terminalLessons, type TerminalState } from "./terminal-lessons";
 import { DatabaseSync } from "node:sqlite";
 import { randomBytes, randomUUID, createHash, timingSafeEqual } from "node:crypto";
 import { mkdirSync, chmodSync, readFileSync } from "node:fs";
@@ -16,6 +18,7 @@ interface StoredSession {
   flags: Record<string, string>;
   completedStages: string[];
   stage5Verified: boolean;
+  terminal?: TerminalState;
   attempts: Record<string, { count: number; since: number }>;
   blueState: BlueState;
   blueEvidenceAccepted: boolean;
@@ -37,11 +40,11 @@ function requireStage(s: StoredSession, id: StageId) {
   const current = nextStage(s);
   if (!s.completedStages.includes(id) && id !== current) fail("STAGE_LOCKED", "前のステージを完了してください。", 409);
 }
-function attempt(s: StoredSession, key: string) {
+function attempt(s: StoredSession, key: string, limit = 10) {
   const now = Date.now();
   let bucket = s.attempts[key];
   if (!bucket || now - bucket.since >= 60_000) bucket = s.attempts[key] = { count: 0, since: now };
-  if (bucket.count >= 10) fail("RATE_LIMITED", "試行回数の上限です。1分後に再試行してください。", 429);
+  if (bucket.count >= limit) fail("RATE_LIMITED", "試行回数の上限です。1分後に再試行してください。", 429);
   bucket.count++;
 }
 function reportComplete(r: ReportFields | null): boolean {
@@ -51,7 +54,7 @@ function view(s: StoredSession): SessionView {
   const actionPoints: Record<BlueState, number> = { anomaly_detected: 0, investigating: 12, input_isolated: 24, safe_mode: 34, verified: 42, recovered: 42 };
   const score = { redFlags: s.completedStages.length * 8, redReport: reportComplete(s.reports.red) ? 10 : 0, blueActions: actionPoints[s.blueState], blueEvidence: s.blueEvidenceAccepted && reportComplete(s.reports.blue) ? 8 : 0, total: 0 };
   score.total = score.redFlags + score.redReport + score.blueActions + score.blueEvidence;
-  return { id: s.id, labId: "water-01", mode: "simulator", expiresAt: s.expiresAt, completedStages: s.completedStages, nextStage: nextStage(s), blueState: s.blueState, blueEvidenceAccepted: s.blueEvidenceAccepted, reports: s.reports, score, complete: s.completedStages.length === 5 && reportComplete(s.reports.red) && s.blueState === "recovered" && reportComplete(s.reports.blue), events: s.events };
+  return { id: s.id, labId: "water-01", mode: "simulator", expiresAt: s.expiresAt, completedStages: s.completedStages, nextStage: nextStage(s), terminal: s.terminal ?? initialTerminal(), blueState: s.blueState, blueEvidenceAccepted: s.blueEvidenceAccepted, reports: s.reports, score, complete: s.completedStages.length === 5 && reportComplete(s.reports.red) && s.blueState === "recovered" && reportComplete(s.reports.blue), events: s.events };
 }
 function matchingTimes(actual: string[] | undefined, expected: string[]) {
   return Array.isArray(actual) && actual.length === expected.length && actual.every((v, i) => typeof v === "string" && v === expected[i]);
@@ -120,7 +123,7 @@ export class SimulatorScenarioRuntime implements ScenarioRuntimeAdapter {
   }
   private insert(db: DatabaseSync) {
     const token = randomBytes(32).toString("hex");
-    const s: StoredSession = { id: randomUUID(), ownerHash: hash(token), expiresAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(), flags: Object.fromEntries(aquaScenario.redStages.map(stage => [stage.id, `AQUA{${stage.id}_${randomBytes(24).toString("hex")}}`])), completedStages: [], stage5Verified: false, attempts: {}, blueState: "anomaly_detected", blueEvidenceAccepted: false, reports: { red: null, blue: null }, events: [] };
+    const s: StoredSession = { id: randomUUID(), ownerHash: hash(token), expiresAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(), flags: Object.fromEntries(aquaScenario.redStages.map(stage => [stage.id, `AQUA{${stage.id}_${randomBytes(24).toString("hex")}}`])), completedStages: [], stage5Verified: false, terminal: initialTerminal(), attempts: {}, blueState: "anomaly_detected", blueEvidenceAccepted: false, reports: { red: null, blue: null }, events: [] };
     record(s, "SESSION_STARTED");
     db.prepare("INSERT INTO sessions (id, data) VALUES (?, ?)").run(s.id, JSON.stringify(s));
     return { sessionId: s.id, token, session: view(s) };
@@ -171,11 +174,8 @@ export class SimulatorScenarioRuntime implements ScenarioRuntimeAdapter {
       return this.insert(db);
     });
   }
-  async getMaterials(access: SessionAccess, stage: string): Promise<MaterialView> {
-    return this.transaction(access, s => {
-      const id = stageId(stage);
-      requireStage(s, id);
-      record(s, "MATERIAL_VIEWED", id);
+  private material(s: StoredSession, stage: string): MaterialView {
+    const id = stageId(stage); requireStage(s, id);
       const flag = s.flags[id];
       const materials: Record<StageId, MaterialView["files"]> = {
         S01: [{ path: "/training/discovery", content: JSON.stringify({ trainingOnly: true, target: "aqua.lab.test (ブラウザ内教材・接続先ではありません)", services: [{ port: 22, name: "SSH" }, { port: 8080, name: "HTTP" }], flag }, null, 2) }],
@@ -186,6 +186,18 @@ export class SimulatorScenarioRuntime implements ScenarioRuntimeAdapter {
       };
       // Return only this stage's material; never serialize the complete dictionary.
       return { stageId: id, files: materials[id] };
+  }
+  async getMaterials(access: SessionAccess, stage: string): Promise<MaterialView> {
+    return this.transaction(access, s => this.material(s, stage));
+  }
+  async executeCommand(access: SessionAccess, stage: string, command: string) {
+    return this.transaction(access, s => {
+      const id = stageId(stage); requireStage(s, id);
+      attempt(s, "terminal-commands", 60);
+      const result = simulateCommand({ state: s.terminal ?? initialTerminal(), stageId: id, command, read: requested => this.material(s, requested) });
+      s.terminal = result.terminal;
+      record(s, result.exitCode === 0 ? `COMMAND_${result.scene.toUpperCase()}` : `COMMAND_REJECTED_${result.terminal.lastError}`, id);
+      return { result, session: view(s) };
     });
   }
   async getHint(access: SessionAccess, stage: string, index: number) {
@@ -193,12 +205,13 @@ export class SimulatorScenarioRuntime implements ScenarioRuntimeAdapter {
       const id = stageId(stage); requireStage(s, id);
       if (!Number.isInteger(index) || index < 0 || index > 2) fail("INVALID_HINT", "ヒントを選び直してください。");
       record(s, `HINT_${index + 1}_VIEWED`, id);
-      return { hint: aquaScenario.redStages.find(x => x.id === id)!.hints[index] };
+      return generateCommandHint(id, s.terminal ?? initialTerminal(), index);
     });
   }
   async stage5Evidence(access: SessionAccess, answer: { sourceIp: string; firstEventTimestampUtc: string }) {
     return this.transaction(access, s => {
       requireStage(s, "S05"); attempt(s, "evidence-S05");
+      if (!terminalLessons.S05.steps.every(step => s.terminal?.observations.includes(step.observation))) fail("COMMAND_REQUIRED", "ターミナルでログを読み、grepで記録を絞り込んでください。", 409);
       const expected = stage5Answer();
       if (answer.sourceIp !== expected.ip || answer.firstEventTimestampUtc !== expected.time) fail("EVIDENCE_INCORRECT", "送信元と最初のUTC時刻をログで確認してください。");
       s.stage5Verified = true; record(s, "STAGE5_EVIDENCE_ACCEPTED", "S05");
@@ -211,6 +224,7 @@ export class SimulatorScenarioRuntime implements ScenarioRuntimeAdapter {
       if (s.completedStages.includes(id)) return view(s);
       attempt(s, `flag-${id}`);
       if (typeof flag !== "string" || flag.length > 160 || hash(flag) !== hash(s.flags[id])) fail("FLAG_INCORRECT", "FLAGが一致しません。教材を確認してください。");
+      if (!terminalLessons[id].steps.every(step => s.terminal?.observations.includes(step.observation))) fail("COMMAND_REQUIRED", "先にターミナルでこのステージの調査を行ってください。", 409);
       if (id === "S01" && evidence.ports?.split(/[,、\s]+/).filter(Boolean).sort().join(",") !== "22,8080") fail("EVIDENCE_REQUIRED", "公開ポートを2つ記録してください。");
       if (id === "S03" && (!evidence.risk || evidence.risk.trim().length < 10)) fail("EVIDENCE_REQUIRED", "情報公開のリスクを10文字以上で記述してください。");
       if (id === "S04" && !["0444", "444", "-r--r--r--", "r--r--r--"].includes(evidence.permission)) fail("EVIDENCE_REQUIRED", "読み取り専用ファイルの権限を記録してください。");

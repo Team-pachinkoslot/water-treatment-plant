@@ -1,3 +1,4 @@
+import type { TerminalState } from "./terminal-lessons";
 import type { BlueState } from "./aqua";
 export interface SessionAccess { sessionId: string; token: string }
 export interface ReportFields { observations: string; evidence: string; timeline: string; improvements: string }
@@ -9,6 +10,7 @@ export interface SessionView {
   expiresAt: string;
   completedStages: string[];
   nextStage: string | null;
+  terminal: TerminalState;
   blueState: BlueState;
   blueEvidenceAccepted: boolean;
   reports: { red: ReportFields | null; blue: ReportFields | null };

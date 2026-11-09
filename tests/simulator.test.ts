@@ -1,3 +1,4 @@
+import { commandFlows } from "./command-flows";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,10 +18,15 @@ afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); rmSync(dir, { recurs
 async function started() { const s = await runtime.start("water-01"); return { sessionId: s.sessionId, token: s.token }; }
 async function solveRed(access: SessionAccess) {
   for (const stage of ["S01", "S02", "S03", "S04", "S05"]) {
-    const material = await runtime.getMaterials(access, stage);
+    let output = "";
+    for (const command of commandFlows[stage]) {
+      const response = await runtime.executeCommand(access, stage, command);
+      expect(response.result.exitCode).toBe(0);
+      output += response.result.output + "\n";
+    }
     let flag: string;
     if (stage === "S05") flag = (await runtime.stage5Evidence(access, { sourceIp: "198.51.100.23", firstEventTimestampUtc: "2026-11-02T00:03:00Z" })).flag;
-    else flag = material.files.map(f => f.content).join("\n").match(/AQUA\{[^}]+\}/)![0];
+    else flag = output.match(/AQUA\{[^}]+\}/)![0];
     await runtime.submitFlag(access, stage, flag, { ports: "22,8080", risk: "公開メモから学習用アカウント情報が露出するリスク。", permission: "0444" });
   }
   await runtime.submitReport(access, "red", report);
@@ -62,6 +68,7 @@ describe("persistent browser simulator", () => {
   it("requires stage-specific evidence and does not advance on rejected submissions", async () => {
     const access = await started();
     const flag = JSON.parse((await runtime.getMaterials(access, "S01")).files[0].content).flag;
+    for (const command of commandFlows.S01) await runtime.executeCommand(access, "S01", command);
     await expect(runtime.submitFlag(access, "S01", flag, { ports: "80,443" })).rejects.toMatchObject({ code: "EVIDENCE_REQUIRED" });
     expect((await runtime.getSession(access)).completedStages).toEqual([]);
     await expect(runtime.stage5Evidence(access, { sourceIp: "bad", firstEventTimestampUtc: "bad" })).rejects.toMatchObject({ code: "STAGE_LOCKED" });

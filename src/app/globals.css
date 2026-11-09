@@ -3019,3 +3019,137 @@ main {
 .practice-report-text { white-space: pre-wrap; }
 .practice-audit { max-height: 400px; overflow: auto; padding-left: 20px; font: 11px/2 var(--mono); }
 @media (max-width: 700px) { .practice-score-details { font-size: 11px; } .practice-progress { padding: 20px 16px; } }
+
+/* Command-driven training workspace. */
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+.terminal-stage-journey { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); margin: 26px 0 30px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.terminal-stage-journey button { display: grid; gap: 4px; padding: 18px; text-align: left; border-right: 1px solid var(--border); }
+.terminal-stage-journey button:last-child { border-right: 0; }
+.terminal-stage-journey button > span { font: 12px var(--mono); color: var(--muted); }
+.terminal-stage-journey button strong { font-size: 14px; }
+.terminal-stage-journey button small { font-size: 10px; color: var(--muted); }
+.terminal-stage-journey button[aria-pressed="true"] { background: #8ab8bd10; box-shadow: inset 0 -3px var(--cyan); }
+.terminal-stage-journey button[aria-pressed="true"] strong, .terminal-stage-journey button.is-complete small { color: var(--cyan); }
+.terminal-stage-journey button:disabled { opacity: .4; }
+.terminal-mission { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin: 26px 0 20px; }
+.terminal-mission h2 { font-size: clamp(20px,2vw,28px); margin: 8px 0; }
+.terminal-mission p { color: var(--muted); margin: 8px 0; }
+.terminal-mission-rule { font-size: 10px; white-space: nowrap; padding: 7px 10px; border: 1px solid var(--border); border-radius: 5px; color: var(--cyan); }
+.terminal-workspace { display: grid; grid-template-columns: minmax(0,1.15fr) minmax(0,1fr); gap: 20px; align-items: start; }
+.terminal-primary, .terminal-visual-column { min-width: 0; }
+.training-terminal { border: 1px solid #3a4b54; border-radius: 10px; overflow: hidden; background: #10191e; box-shadow: 0 15px 35px #0002; }
+.terminal-titlebar { display: flex; align-items: center; gap: 14px; padding: 13px 17px; background: #233038; border-bottom: 1px solid #36454e; }
+.terminal-titlebar > span:nth-child(2) { display: flex; align-items: center; gap: 8px; color: #a5b5be; font: 10px var(--mono); letter-spacing: 1px; }
+.terminal-titlebar > strong { margin-left: auto; font: 8px var(--mono); color: #9ac8bf; border: 1px solid #46615c; padding: 3px 6px; border-radius: 3px; }
+.terminal-window-dots { display: flex; gap: 5px; }
+.terminal-window-dots i { width: 7px; height: 7px; background: #d09780; border-radius: 50%; }
+.terminal-window-dots i:nth-child(2) { background: #c8b77d; }
+.terminal-window-dots i:nth-child(3) { background: #7da896; }
+.terminal-context { display: flex; flex-wrap: wrap; gap: 5px 18px; padding: 11px 18px; background: #17232a; color: #82b9b7; font: 10px/1.7 var(--mono); border-bottom: 1px solid #28383f; }
+.terminal-context span:last-child { color: #9faeb6; overflow-wrap: anywhere; }
+.terminal-log { height: 355px; overflow-y: auto; padding: 20px; scrollbar-color: #41535e transparent; font: 12px/1.9 var(--mono); }
+.terminal-welcome > strong { color: #b4c9d1; font-size: 11px; letter-spacing: 1px; }
+.terminal-welcome p { color: #a3b7bf; margin: 12px 0; font: 12px/1.9 var(--sans); }
+.terminal-welcome .terminal-muted { color: #798f9b; font-size: 10px; }
+.terminal-entry { margin: 22px 0; }
+.terminal-command { color: #c1dce0; overflow-wrap: anywhere; }
+.terminal-command > span { color: #e4a177; padding-right: 7px; }
+.terminal-output { color: #aebdc6; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; margin: 12px 0 0; }
+.terminal-error { color: #e7ac8a; }
+.terminal-pending { color: #8ab8bd; display: flex; gap: 9px; align-items: center; }
+.terminal-pending > span { width: 6px; height: 6px; background: var(--cyan); border-radius: 50%; animation: terminalPulse .8s ease-in-out infinite; }
+.practice-page .terminal-command-form { display: flex; align-items: center; padding: 10px 12px 10px 17px; border-top: 1px solid #364852; background: #142229; gap: 10px; }
+.terminal-command-form > svg { flex-shrink: 0; color: #e4a177; }
+.practice-page .terminal-command-form input { border: 0; border-radius: 0; font: 12px/1.8 var(--mono); background: transparent; color: #d9e9ed; padding: 8px 0; }
+.terminal-command-form input::placeholder { color: #8497a2; }
+.terminal-command-form > button { display: flex; gap: 5px; align-items: center; justify-content: center; padding: 9px 12px; background: #2c4d53; color: #c3e2e0; border: 1px solid #496b70; border-radius: 5px; white-space: nowrap; font-size: 11px; }
+.terminal-command-form > button:disabled { opacity: .4; }
+.terminal-footer { display: flex; justify-content: space-between; padding: 9px 18px; gap: 12px; color: #8398a3; font-size: 9px; }
+.terminal-footer button { color: #91bec0; font-size: 10px; }
+.command-hint-panel { margin-top: 16px; padding: 22px; border-radius: 9px; }
+.command-hint-heading { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.command-hint-heading > div { display: flex; align-items: center; gap: 10px; color: var(--orange); }
+.command-hint-heading h3 { margin: 0; color: var(--text); font-size: 15px; }
+.command-hint-heading > span { color: var(--muted); font-size: 9px; }
+.command-hint-panel > p { color: var(--muted); font-size: 12px; line-height: 1.9; }
+.hint-levels { display: flex; gap: 8px; margin: 18px 0; }
+.hint-levels button { flex: 1; text-align: left; border: 1px solid var(--border); border-radius: 5px; padding: 9px 10px; font-size: 11px; }
+.hint-levels button > span { color: var(--orange); font: 9px var(--mono); margin-right: 9px; }
+.hint-levels button[aria-pressed="true"] { background: #e4a17712; border-color: #966f56; }
+.generated-hint { border-top: 1px solid var(--border); padding-top: 17px; font-size: 12px; }
+.generated-hint > small { color: var(--orange); }
+.generated-hint p { line-height: 1.9; }
+.generated-hint .hint-explanation { color: var(--muted); }
+.command-example { display: grid; gap: 8px; border-radius: 5px; padding: 13px; background: var(--bg); border: 1px solid var(--border); }
+.command-example code { color: var(--cyan); font: 11px/1.9 var(--mono); overflow-wrap: anywhere; }
+.command-example button { font-size: 11px; color: var(--orange); text-align: left; justify-self: start; }
+.generated-hint .hint-refresh { display: block; margin-top: 14px; font-size: 11px; color: var(--muted); }
+.operation-visual { padding: 22px; border-radius: 10px; overflow: hidden; }
+.operation-visual-heading { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.operation-visual-heading .eyebrow { font-size: 8px; letter-spacing: 1.5px; color: var(--cyan); }
+.operation-visual h3 { font-size: 17px; margin: 7px 0 0; }
+.operation-phase { font-size: 9px; color: var(--muted); border: 1px solid var(--border); border-radius: 3px; padding: 3px 7px; white-space: nowrap; }
+.phase-sending, .phase-processing { color: var(--cyan); }
+.phase-error { color: var(--orange); }
+.operation-controls { display: flex; justify-content: flex-end; gap: 16px; margin: 16px 0 4px; }
+.operation-controls button { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 10px; }
+.operation-map { overflow-x: auto; margin: 4px -6px 10px; }
+.operation-map > svg { display: block; width: 100%; min-width: 460px; }
+.packet { animation-duration: 1.5s; animation-timing-function: linear; animation-iteration-count: 3; opacity: 0; }
+.packet-out { offset-path: path('M158 112C205 43 250 43 302 112'); animation-name: operationPacket; }
+.packet-back { offset-path: path('M302 158C252 227 208 227 158 158'); animation-name: operationPacket; }
+.operation-no-packets { display: none; }
+.visual-target.processing { animation: terminalPulse .7s ease-in-out infinite; }
+.operation-visual.is-paused *, .operation-visual.is-paused *::before, .operation-visual.is-paused *::after { animation-play-state: paused !important; }
+.operation-steps { display: grid; gap: 10px; padding: 0; list-style: none; margin: 16px 0; }
+.operation-steps li { font-size: 11px; color: #bec9ce; display: flex; gap: 12px; align-items: flex-start; }
+.operation-steps span { color: var(--cyan); font: 9px/1.8 var(--mono); }
+.operation-explanation { padding: 13px 14px; border-left: 2px solid var(--cyan); background: #8ab8bd09; font-size: 12px; line-height: 1.9; }
+.operation-node-buttons { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 18px; }
+.operation-node-buttons button { color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 5px 9px; font-size: 10px; }
+.operation-node-buttons button[aria-pressed="true"] { color: var(--cyan); border-color: #4d787e; }
+.operation-node-detail { color: var(--muted); font-size: 11px; line-height: 1.9; min-height: 55px; }
+.operation-boundary { display: flex; align-items: center; gap: 7px; font-size: 9px; color: #9bafb6; border-top: 1px solid var(--border); padding-top: 14px; }
+.operation-boundary svg { flex-shrink: 0; color: var(--cyan); }
+.terminal-observations { margin-top: 16px; padding: 22px; border-radius: 9px; }
+.terminal-observations .eyebrow { font-size: 8px; letter-spacing: 1px; }
+.terminal-observations h3 { display: flex; justify-content: space-between; gap: 14px; margin: 8px 0 16px; font-size: 15px; }
+.terminal-observations h3 span { color: var(--cyan); font: 12px var(--mono); }
+.terminal-observations ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.terminal-observations li { display: flex; gap: 10px; align-items: flex-start; color: var(--muted); font-size: 11px; line-height: 1.9; }
+.terminal-observations li svg { flex-shrink: 0; margin-top: 3px; color: #53646c; }
+.terminal-observations li.is-observed svg { color: var(--cyan); }
+.terminal-observations li.is-observed span { color: #c7d8db; }
+.terminal-observations > p { color: var(--muted); border-top: 1px solid var(--border); padding-top: 14px; margin-bottom: 0; font-size: 10px; line-height: 1.9; }
+.blue-operation-layout { display: grid; grid-template-columns: minmax(0,1.3fr) minmax(0,1fr); align-items: start; gap: 20px; margin: 24px 0; }
+.defense-state-card { padding: 25px; border-radius: 9px; }
+.defense-state-card h3 { font-size: 19px; }
+.defense-state-card dl > div { display: flex; gap: 16px; justify-content: space-between; border-bottom: 1px solid var(--border); padding: 17px 0; }
+.defense-state-card dt { color: var(--muted); font-size: 12px; }
+.defense-state-card dd { font-size: 17px; margin: 0; color: var(--cyan); }
+.defense-state-card p { color: var(--muted); font-size: 11px; line-height: 1.9; }
+@keyframes operationPacket { 0% { offset-distance: 0%; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { offset-distance: 100%; opacity: 0; } }
+@keyframes terminalPulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+@media (max-width: 1150px) { .terminal-workspace, .blue-operation-layout { grid-template-columns: 1fr; } .terminal-visual-column { display: grid; grid-template-columns: minmax(0,1.2fr) minmax(0,1fr); gap: 16px; align-items: start; } .terminal-observations { margin-top: 0; } }
+@media (max-width: 700px) {
+  .terminal-stage-journey { grid-template-columns: repeat(5,minmax(0,1fr)); margin: 20px 0; }
+  .terminal-stage-journey button { padding: 12px 5px; text-align: center; }
+  .terminal-stage-journey button strong { font-size: 10px; }
+  .terminal-stage-journey button small { font-size: 8px; }
+  .terminal-mission { display: block; }
+  .terminal-mission-rule { display: inline-block; margin-top: 5px; }
+  .terminal-workspace { gap: 14px; }
+  .terminal-visual-column { display: block; }
+  .terminal-observations { margin-top: 14px; }
+  .terminal-log { height: 330px; padding: 16px; font-size: 11px; }
+  .terminal-context { font-size: 9px; padding: 10px 14px; }
+  .terminal-titlebar { padding: 12px; gap: 10px; }
+  .terminal-titlebar > span:nth-child(2) { font-size: 9px; }
+  .practice-page .terminal-command-form input { font-size: 12px; }
+  .terminal-command-form > button { padding: 9px; }
+  .terminal-command-form > button span { display: none; }
+  .command-hint-panel, .operation-visual, .terminal-observations { padding: 18px 16px; }
+  .command-hint-heading > span { display: none; }
+  .operation-visual h3 { font-size: 16px; }
+}
+@media (prefers-reduced-motion: reduce) { .packet, .terminal-pending > span, .visual-target.processing { animation: none !important; } .terminal-log { scroll-behavior: auto !important; } }

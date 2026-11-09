@@ -1,3 +1,4 @@
+import type { TerminalResult, CommandHint } from "./terminal-lessons";
 import { env } from "node:process";
 import type { BlueActionCode } from "./aqua";
 import type { SessionAccess, SessionView, ReportFields, BlueEvidence, MaterialView } from "./session-types";
@@ -12,7 +13,8 @@ export interface ScenarioRuntimeAdapter {
   getSession(access: SessionAccess): Promise<SessionView>;
   reset(access: SessionAccess): Promise<StartedSession>;
   getMaterials(access: SessionAccess, stage: string): Promise<MaterialView>;
-  getHint(access: SessionAccess, stage: string, index: number): Promise<{ hint: string }>;
+  executeCommand(access: SessionAccess, stage: string, command: string): Promise<{ result: TerminalResult; session: SessionView }>;
+  getHint(access: SessionAccess, stage: string, index: number): Promise<CommandHint>;
   submitFlag(access: SessionAccess, stage: string, flag: string, evidence?: Record<string, string>): Promise<SessionView>;
   stage5Evidence(access: SessionAccess, answer: { sourceIp: string; firstEventTimestampUtc: string }): Promise<{ flag: string }>;
   submitReport(access: SessionAccess, track: "red" | "blue", report: ReportFields): Promise<SessionView>;
@@ -24,6 +26,7 @@ export class DisabledScenarioRuntime implements ScenarioRuntimeAdapter {
   async getSession(): Promise<never> { throw new ScenarioRuntimeError(); }
   async reset(): Promise<never> { throw new ScenarioRuntimeError(); }
   async getMaterials(): Promise<never> { throw new ScenarioRuntimeError(); }
+  async executeCommand(): Promise<never> { throw new ScenarioRuntimeError(); }
   async getHint(): Promise<never> { throw new ScenarioRuntimeError(); }
   async submitFlag(): Promise<never> { throw new ScenarioRuntimeError(); }
   async stage5Evidence(): Promise<never> { throw new ScenarioRuntimeError(); }
