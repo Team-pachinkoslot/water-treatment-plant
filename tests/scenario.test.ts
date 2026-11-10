@@ -41,7 +41,9 @@ describe("AQUA learner data", () => {
     expect(samples.slice(3,6).every(s => Math.abs(s.display_cl_mgl - s.model_cl_mgl) > alert.trigger.threshold)).toBe(true);
     expect(Math.abs(samples[2].display_cl_mgl - samples[2].model_cl_mgl)).toBeLessThanOrEqual(alert.trigger.threshold);
     const recovery = readTelemetry(true);
-    expect(recovery).toHaveLength(3);
-    expect(recovery.every(s => Math.abs(s.display_cl_mgl - s.model_cl_mgl) <= alert.trigger.threshold && s.mode === "safe_mode" && s.input_feed === "isolated")).toBe(true);
+    // 14:10 は切替直後の過渡(差 0.24)。14:11〜14:13 の3回が閾値以内。
+    expect(recovery.map(s => s.timestamp.slice(11, 16))).toEqual(["14:10", "14:11", "14:12", "14:13"]);
+    expect(Math.abs(recovery[0].display_cl_mgl - recovery[0].model_cl_mgl)).toBeGreaterThan(alert.trigger.threshold);
+    expect(recovery.slice(1).every(s => Math.abs(s.display_cl_mgl - s.model_cl_mgl) <= alert.trigger.threshold && s.mode === "safe_mode" && s.input_feed === "normal")).toBe(true);
   });
 });

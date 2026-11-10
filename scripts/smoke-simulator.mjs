@@ -89,30 +89,46 @@ for (const stageId of ["S01", "S02", "S03", "S04", "S05"]) {
 await api(`/${id}/report`, { track: "red", report });
 assert.equal(session.score.total, 50);
 await api(`/${id}/blue-actions`, { action: "RESTORE_SIMULATED_MONITORING" }, 409);
-const blue = {
-  ACKNOWLEDGE_ANOMALY: { start: "14:03", confirmed: "14:05", reason: "14:01は次の回で閾値以内に戻り連続していない。" },
-  ISOLATE_TRAINING_FEED: { target: "PLC-03:CL2_DOSE_SP", causes: ["unauthorized-change", "display-stale"], citeUser: "maint_tmp", citeTime: "14:02:40", citeTicket: "none", decision: "isolate" },
-  ENTER_SIMULATED_SAFE_MODE: { actions: ["man", "block-remote", "field-test", "report"] },
-  VERIFY_STABLE: { approved: true, spRestored: true, accountDisabled: true, feedSwitched: true, confirmed: ["14:10", "14:11", "14:12"], fieldCheck: "consistent" },
-  RESTORE_SIMULATED_MONITORING: { tasks: ["auto", "release", "watch"] },
+// Blue Team: 16の判断を順に判定し、STEPごとに canAdvance を通して遷移する。
+const answers = {
+  "1-1": "14:03", "1-2": "14:05", "1-3": "14:01は次の回で閾値以内に戻り連続していないため単発。",
+  "2-1": "PLC-03:CL2_DOSE_SP", "2-2": ["unauthorized-change", "display-untrusted"], "2-3": ["no-ticket", "drop-after-change", "created-account"], "2-4": "display-feed",
+  "3-1": ["man", "block-remote", "field-test", "report"],
+  "4-1": "1.20", "4-2": "maint_tmp", "4-3": true, "4-4": "normal", "4-5": "consistent",
+  "5-1": "AUTO", "5-2": true, "5-3": ["compare", "baseline", "ticket"],
 };
-await api(`/${id}/blue-actions`, { action: "ACKNOWLEDGE_ANOMALY", answers: { ...blue.ACKNOWLEDGE_ANOMALY, start: "14:01" } }, 400);
-const checked = await api(`/${id}/blue-check`, { action: "ACKNOWLEDGE_ANOMALY", answers: blue.ACKNOWLEDGE_ANOMALY });
-assert.equal(checked.result.ok, true);
-for (const action of ["ACKNOWLEDGE_ANOMALY", "ISOLATE_TRAINING_FEED", "ENTER_SIMULATED_SAFE_MODE"]) await api(`/${id}/blue-actions`, { action, answers: blue[action] });
-await api(`/${id}/blue-actions`, { action: "VERIFY_STABLE", answers: { ...blue.VERIFY_STABLE, confirmed: ["14:10", "14:11"] } }, 409);
-await api(`/${id}/blue-actions`, { action: "VERIFY_STABLE", answers: blue.VERIFY_STABLE });
-await api(`/${id}/blue-actions`, { action: "RESTORE_SIMULATED_MONITORING", answers: blue.RESTORE_SIMULATED_MONITORING });
+const steps = {
+  ACKNOWLEDGE_ANOMALY: ["1-1", "1-2", "1-3"], ISOLATE_TRAINING_FEED: ["2-1", "2-2", "2-3", "2-4"], ENTER_SIMULATED_SAFE_MODE: ["3-1"],
+  VERIFY_STABLE: ["4-1", "4-2", "4-3", "4-4", "4-5"], RESTORE_SIMULATED_MONITORING: ["5-1", "5-2", "5-3"],
+};
+await api(`/${id}/blue-actions`, { action: "ACKNOWLEDGE_ANOMALY" }, 409);
+const wrong = await api(`/${id}/blue-check`, { judgmentId: "1-1", answer: "14:01" });
+assert.equal(wrong.result.ok, false);
+for (const [action, ids] of Object.entries(steps)) {
+  for (const judgmentId of ids) {
+    if (judgmentId === "4-4") {
+      await api(`/${id}/blue-observe`, {});
+      assert.equal((await api(`/${id}/blue-check`, { judgmentId, answer: "normal" })).result.ok, false);
+      for (let i = 0; i < 3; i++) await api(`/${id}/blue-observe`, {});
+    }
+    assert.equal((await api(`/${id}/blue-check`, { judgmentId, answer: answers[judgmentId] })).result.ok, true, judgmentId);
+  }
+  await api(`/${id}/blue-actions`, { action });
+  await api(`/${id}/blue-actions`, { action }); // 重複しても二重に加算されない
+}
+assert.equal(session.blueState, "recovered");
+assert.equal(session.score.blueActions, 40);
 await api(`/${id}/report`, { track: "blue", report: { ...report, impact: "PLC-03の塩素注入と浄水池出口の残留塩素に影響した。" } });
+await api(`/${id}/report`, { track: "blue", report: { ...report, impact: "PLC-03の塩素注入と浄水池出口の残留塩素に影響した。" } }, 409);
 assert.equal(session.complete, true);
-assert.equal(session.score.total, 100);
-const completed = session;
+assert.equal(session.score.total, 98);
+const completed = { ...session, events: [] };
 await api("/current");
-assert.deepEqual(session, completed);
+assert.deepEqual({ ...session, events: [] }, completed);
 await api(`/${id}/reset`, {}, 201);
 assert.notEqual(session.id, id);
 assert.equal(session.score.total, 0);
 await api(`/${id}`, undefined, 404);
 await api("/current");
 assert.equal(session.complete, false);
-console.log("Simulator: terminal commands, 5 flags, reports, ordered recovery, 100 points, reload and reset passed. No VM actions performed.");
+console.log("Simulator: terminal commands, 5 flags, reports, 16 Blue judgments with transition guard, scoring (98 with two wrong answers), reload and reset passed. No VM actions performed.");

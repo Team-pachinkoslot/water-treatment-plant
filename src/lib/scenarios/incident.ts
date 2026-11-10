@@ -15,7 +15,7 @@ export const INCIDENT = {
   anomalyConfirmed: "14:05",
   minEstimatedResidual: 0.3, // 異常中の出口残留塩素の推定最小値(mg/L)
   referenceResidual: 0.1, // 水質基準相当(給水栓の遊離残留塩素)として参照する値(mg/L)
-  fieldAnalysis: { at: "14:12", value: 0.58 }, // 現場手分析の模擬結果(mg/L)
+  fieldAnalysis: { at: "14:12", value: 0.59 }, // 現場手分析の模擬結果(mg/L)
   pumpRpm: { baseline: 1440, changed: 480 }, // 注入ポンプ回転数(min⁻¹)の模擬値
 } as const;
 
@@ -55,47 +55,94 @@ export const opLog: readonly OpLogRow[] = [
   { at: INCIDENT.changeTime, user: INCIDENT.extraAdminAccount, plc: "PLC-03", tag: INCIDENT.changedTag, from: INCIDENT.baselineSp.toFixed(2), to: INCIDENT.changedSp.toFixed(2), ticket: null },
 ];
 
-// 原因の候補(STEP 02)。証拠と正誤を持つ。
-export type CauseCandidate = { id: string; label: string; evidence: string; correct: boolean; reason: string };
-export const causeCandidates: readonly CauseCandidate[] = [
-  { id: "sensor-fault", label: "残留塩素計(センサー)の故障", evidence: "残留塩素計の自己診断は正常。流量計・注入ポンプ回転数など他の計器は互いに整合している。", correct: false, reason: "自己診断は正常で、他の計器とも整合しています。センサー単体の故障では、独立モデルの推定値まで下がる理由を説明できません。" },
-  { id: "comm-delay", label: "通信遅延・タイムアウト", evidence: "時刻のずれやタイムアウトの記録はない。各サンプルは1分周期で欠けずに届いている。", correct: false, reason: "時刻ずれやタイムアウトの記録がありません。遅延なら値は遅れて追従するはずですが、表示値は高止まりしています。" },
-  { id: "unauthorized-change", label: "承認外の設定変更", evidence: `${INCIDENT.changedTag} が ${INCIDENT.baselineSp.toFixed(2)}→${INCIDENT.changedSp.toFixed(2)} ${INCIDENT.unit} に変更。変更者 ${INCIDENT.extraAdminAccount}、変更管理票なし。直後から独立モデルの推定値が低下。`, correct: true, reason: "操作ログ・設定差分・独立モデルの低下の3点が整合します。" },
-  { id: "display-stale", label: "表示側のデータ停滞(表示値の高止まり)", evidence: "HMIの表示値だけが 0.8 mg/L 前後で高止まりし、PLC-03 側のPVとは乖離している。", correct: true, reason: "表示値だけが動かず、PLC側のPVと食い違っています。設定変更と併発しているため、表示用入力は信頼できません。" },
-];
-
-// 表示用入力をどう扱うか(STEP 02)。
+// 判断の選択肢。正誤と、選んだときに示す「見直す観点」(reason)を持つ。誤答の reason に答えそのものは書かない。
 export type Choice = { id: string; label: string; correct: boolean; reason: string };
-export const isolationDecisions: readonly Choice[] = [
-  { id: "isolate", label: "表示用データ入力を隔離し、独立した値で監視する", correct: true, reason: "信頼できない入力を切り離し、根拠のそろった値で判断を続けられます。" },
-  { id: "watch", label: "表示値は下限アラームを下回っていないので、様子を見る", correct: false, reason: "表示値そのものが疑わしい状況です。下限アラームが出ないことは安全の根拠になりません。ログ・差分・独立値の3点をそろえて判断します。" },
-  { id: "stop-plc", label: "PLC-03 ごと停止する", correct: false, reason: "塩素注入まで止まり、消毒不足になる恐れがあります。止めるのは信頼できない表示用入力で、消毒は維持します。" },
+
+// 2-2 考えられる原因(複数選択)。
+export type CauseCandidate = Choice;
+export const causeCandidates: readonly CauseCandidate[] = [
+  { id: "sensor-fault", label: "残留塩素計(センサー)の故障", correct: false, reason: "別系統の推定値(流量・ポンプ回転数から算出)も低下していることと、整合しますか?" },
+  { id: "comm-delay", label: "通信の遅延", correct: false, reason: "時刻のずれやタイムアウトの記録はありますか?" },
+  { id: "unauthorized-change", label: "承認外の設定変更", correct: true, reason: "変更管理票のない設定変更と、その直後からの推定値の低下が整合します。" },
+  { id: "display-untrusted", label: "表示側のデータが信頼できない", correct: true, reason: "表示値だけが高いまま動かず、別系統の推定値と食い違っています。" },
 ];
 
-// 安全モードの対応選択肢(STEP 03)。複数選択。誤りには理由を示す。
+// 2-3 根拠(操作ログからの観察。複数選択)。
+export const evidenceChoices: readonly Choice[] = [
+  { id: "no-ticket", label: `${INCIDENT.changedTag} の変更に、変更管理票がない`, correct: true, reason: "承認の記録がない変更です。" },
+  { id: "drop-after-change", label: `変更(${INCIDENT.changeTime})の直後から、推定値が低下している(${INCIDENT.anomalyStart}〜)`, correct: true, reason: "時刻の前後関係が、変更と低下を結び付けます。" },
+  { id: "created-account", label: `変更者 ${INCIDENT.extraAdminAccount} は、13:58:12 に operator_trn が作成したアカウントである`, correct: true, reason: "変更の直前に作られたアカウントです。" },
+  { id: "others-ticketed", label: "他の変更(PLC-01、02、04)には変更管理票がある", correct: false, reason: "事実ですが、正常な変更との違いを示す補足です。原因そのものの根拠になる観察を選びましょう。" },
+  { id: "alarm-ack", label: "11:40:05 の ALARM_ACK(アラームの確認)がある", correct: false, reason: "今回の設定変更や推定値の低下と、時刻・対象が結び付いていますか?" },
+  { id: "sys-auto", label: "06:00:00 の sys_auto の変更がある", correct: false, reason: "対象のタグと時刻を、今回の異常と比べてみましょう。" },
+];
+
+// 2-4 隔離する対象。
+export const isolationTargets: readonly Choice[] = [
+  { id: "display-feed", label: "表示用データ入力", correct: true, reason: "疑わしい入力だけを切り離し、制御と配水は続けられます。" },
+  { id: "plc-03", label: "PLC-03(塩素注入制御)", correct: false, reason: "制御や配水を止めると水質・供給に影響します。まず疑わしい入力だけを切り離しましょう。" },
+  { id: "scada-all", label: "中央監視室(監視サーバー全体)", correct: false, reason: "監視全体を止めると、他の設備の状態も見えなくなります。まず疑わしい入力だけを切り離しましょう。" },
+  { id: "supply-pump", label: "配水ポンプ", correct: false, reason: "制御や配水を止めると水質・供給に影響します。まず疑わしい入力だけを切り離しましょう。" },
+];
+
+// 3-1 安全モードの対応(複数選択)。
 export type SafeModeChoice = Choice;
 export const safeModeChoices: readonly SafeModeChoice[] = [
-  { id: "man", label: "注入を手動運転(MAN)に切り替え、安全側の固定注入率で運転する", correct: true, reason: "表示が信頼できない間も、消毒を維持しつつ承認済みの値で運転できます。" },
-  { id: "block-remote", label: "遠隔からの設定変更を一時的に禁止する", correct: true, reason: "原因を特定するまで、承認外の書き込みをこれ以上受けないようにします。" },
-  { id: "field-test", label: "現場で残留塩素を手分析して実測値を確認する", correct: true, reason: "表示系に依存しない独立した実測で、実態を把握します。" },
-  { id: "report", label: "運転責任者へ報告する", correct: true, reason: "判断と記録を共有し、承認フローに乗せます。" },
-  { id: "stop", label: "塩素注入を完全に止める", correct: false, reason: "消毒不足となり水質を損なう恐れがあります。止めるのではなく安全側で維持します。" },
-  { id: "max", label: "注入率を最大に上げる", correct: false, reason: "過剰注入になり別のリスクを生みます。承認済みの固定値で運転します。" },
-  { id: "continue", label: "原因不明のまま通常運転(AUTO)を続ける", correct: false, reason: "信頼できない表示と承認外の設定に制御を任せ続けることになります。" },
+  { id: "man", label: "注入を手動運転(MAN)に切り替え、安全側の固定注入率で運転する", correct: true, reason: "表示が信頼できない間も、消毒を維持できます。" },
+  { id: "block-remote", label: "遠隔からの設定変更を一時的に禁止する", correct: true, reason: "承認外の書き込みをこれ以上受けないようにします。" },
+  { id: "field-test", label: "現場で残留塩素を手分析して確認する", correct: true, reason: "表示系に依存しない独立した確認です。" },
+  { id: "report", label: "運転責任者へ報告する", correct: true, reason: "判断と記録を共有します。" },
+  { id: "stop", label: "塩素注入を完全に止める", correct: false, reason: "消毒が不足する恐れがあります。水質を守る対応を考えましょう。" },
+  { id: "max", label: "注入率を最大にする", correct: false, reason: "過剰注入になり、水質や設備に影響します。" },
+  { id: "continue", label: "原因が分かるまで通常運転を続ける", correct: false, reason: "異常が確認できているため、安全側への移行が必要です。" },
 ];
 
-// 現場手分析の判断(STEP 04)。
+// 4-2 無効化するアカウント。
+export const accountChoices: readonly Choice[] = [
+  { id: "operator_day", label: "operator_day", correct: false, reason: "このアカウントの変更には変更管理票があります。今回の設定変更を行ったアカウントを操作ログで確かめましょう。" },
+  { id: "operator_trn", label: "operator_trn", correct: false, reason: "このアカウントも見直しが必要ですが(初期設定のまま)、今回の設定変更を行ったのは別のアカウントです。" },
+  { id: INCIDENT.extraAdminAccount, label: INCIDENT.extraAdminAccount, correct: true, reason: "承認外の設定変更を行ったアカウントです。" },
+  { id: "sys_auto", label: "sys_auto", correct: false, reason: "このアカウントの変更には変更管理票があります。今回の設定変更を行ったアカウントを操作ログで確かめましょう。" },
+];
+
+// 4-4 復旧データでの判断。
+export const recoveryJudgeChoices: readonly Choice[] = [
+  { id: "normal", label: "正常と判断できる", correct: true, reason: "" },
+  { id: "not-yet", label: "まだ判断できない(次の記録を取得して確認を続ける)", correct: false, reason: "" },
+];
+
+// 4-5 現場手分析との整合。
 export const fieldCheckChoices: readonly Choice[] = [
-  { id: "consistent", label: "独立モデルの推定値と整合している", correct: true, reason: "手分析値と独立モデル推定値の差は閾値以内です。" },
-  { id: "inconsistent", label: "独立モデルの推定値と整合していない", correct: false, reason: "差を計算してください。手分析値と独立モデル推定値の差は閾値以内です。" },
+  { id: "consistent", label: "整合している", correct: true, reason: "手分析値と、推定値・監視表示の差は閾値以内です。" },
+  { id: "inconsistent", label: "整合していない", correct: false, reason: `手分析値と推定値・監視表示の差が、閾値 ${INCIDENT.diffThreshold.toFixed(2)} ${INCIDENT.unit} 以内かを確認しましょう。` },
 ];
 
-// 自動運転への復旧作業(STEP 05)。
-export const restoreTasks: readonly { id: string; label: string }[] = [
-  { id: "auto", label: "注入ポンプを手動運転(MAN)から自動運転(AUTO)へ戻す" },
-  { id: "release", label: "表示用データ入力の隔離を解除する" },
-  { id: "watch", label: "復旧後も数分間、独立モデルとの比較監視を続ける" },
+// 5-1 運転モード。
+export const modeChoices: readonly Choice[] = [
+  { id: "AUTO", label: "AUTO(自動運転)", correct: true, reason: "" },
+  { id: "MAN", label: "MAN(手動運転)", correct: false, reason: "安全モードの手動運転のままです。正常性の確認が済んだので、運転方法を戻しましょう。" },
 ];
+
+// 5-3 復旧後も続ける監視(複数選択)。
+export const monitoringChoices: readonly Choice[] = [
+  { id: "compare", label: "独立した別系統の推定値との差を、常時比較する", correct: true, reason: "" },
+  { id: "baseline", label: "設定値を、ベースラインと定期的に照合する", correct: true, reason: "" },
+  { id: "ticket", label: "操作ログの変更を、変更管理票と照合する", correct: true, reason: "" },
+  { id: "stop-watch", label: "安定したので、監視は終了する", correct: false, reason: "再発の確認のため、復旧後も監視を続けます。" },
+  { id: "lower-alarm", label: "警報が鳴りにくいよう、下限アラームの値を下げる", correct: false, reason: "警報を鳴りにくくすると、異常に気付けなくなります。" },
+];
+
+// 1-3 の推奨キーワード(採点には使わず、注意の表示だけに使う)。
+export const spikeReasonKeywords = ["次の回", "閾値以内", "連続していない", "単発"] as const;
+
+// 防御レポートの「講師の確認の観点」(提出後の参考表示。採点には使わない)。
+export const reportReviewPoints = {
+  observations: ["差", `連続回数(${INCIDENT.consecutiveRequired}回)`, "単発の除外"],
+  impact: [INCIDENT.changedPlc, "塩素注入", "浄水池出口", `出口残留塩素の最小値(推定${INCIDENT.minEstimatedResidual.toFixed(2)} ${INCIDENT.unit})と水質基準相当(${INCIDENT.referenceResidual.toFixed(2)} ${INCIDENT.unit})の関係`],
+  evidence: ["変更管理票の有無", "独立した推定値", "表示用入力の隔離", "MAN運転", "現場確認", "報告"],
+  timeline: [`${INCIDENT.consecutiveRequired}回連続の正常(14:11〜14:13)`, "現場手分析との整合"],
+  improvements: ["設定変更の二人承認", "変更管理票", "不要アカウントの削除", "遠隔からの設定変更の制限", "ネットワークの分離", "独立した別系統との常時比較", "ログ監視アラート"],
+} as const;
 
 // HMIのアラーム一覧(訓練用)。
 export type AlarmRow = { at: string; priority: "高" | "中" | "低"; text: string; occurred: boolean };

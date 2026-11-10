@@ -5,7 +5,9 @@ import { deflateRawSync, inflateRawSync } from "node:zlib";
 import { LabError } from "./errors.server";
 
 export const CLOUD_STATE_LIMIT = 300_000;
-const CHECKPOINT_COOKIE = "aqua_checkpoint";
+/** normal: 通常の演習 / practice: Blueだけの練習。保存先(Cookie・localStorage)を分け、互いの進捗に影響させない */
+export type StateSlot = "normal" | "practice";
+const CHECKPOINT_COOKIE = (slot: StateSlot) => (slot === "practice" ? "aqua_practice_checkpoint" : "aqua_checkpoint");
 interface Checkpoint { digest: string; starts: number[]; expiresAt: number }
 function key(): Buffer {
   const configured = process.env.AQUA_SESSION_KEY;
@@ -41,23 +43,23 @@ const digest = (value: string) => createHash("sha256").update(value).digest("hex
 function cookie(request: Request, name: string) {
   return request.headers.get("cookie")?.split(";").map(v => v.trim()).find(v => v.startsWith(`${name}=`))?.slice(name.length + 1);
 }
-function checkpoint(request: Request): Checkpoint | undefined {
-  const value = cookie(request, CHECKPOINT_COOKIE);
+function checkpoint(request: Request, slot: StateSlot): Checkpoint | undefined {
+  const value = cookie(request, CHECKPOINT_COOKIE(slot));
   if (!value) return undefined;
   let data: Checkpoint;
   try { data = JSON.parse(open(value, "aqua-checkpoint")); } catch { return undefined; }
   if (!Array.isArray(data.starts) || !data.starts.every(t => Number.isFinite(t)) || typeof data.digest !== "string" || !/^[a-f0-9]{64}$/.test(data.digest) || !Number.isFinite(data.expiresAt) || data.expiresAt < Date.now()) return undefined;
   return data;
 }
-export function recentStarts(request: Request) { return (checkpoint(request)?.starts ?? []).filter(t => t > Date.now() - 60_000); }
-export function restoreCloudState(request: Request, value: unknown): string {
+export function recentStarts(request: Request, slot: StateSlot = "normal") { return (checkpoint(request, slot)?.starts ?? []).filter(t => t > Date.now() - 60_000); }
+export function restoreCloudState(request: Request, value: unknown, slot: StateSlot = "normal"): string {
   if (typeof value !== "string" || !value) throw new LabError("CLOUD_STATE_REQUIRED", "このブラウザに保存された演習データがありません。演習を開始してください。", 401);
-  const current = checkpoint(request);
+  const current = checkpoint(request, slot);
   if (!current || !timingSafeEqual(Buffer.from(current.digest, "hex"), Buffer.from(digest(value), "hex"))) throw new LabError("STALE_CLOUD_STATE", "演習データが更新されています。再読込するか、新しい演習を開始してください。", 409);
   return open(value, "aqua-exercise-state");
 }
 export function encodeCloudState(snapshot: string) { return seal(snapshot, "aqua-exercise-state"); }
-export function checkpointCookie(state: string, starts: number[], secure: boolean) {
+export function checkpointCookie(state: string, starts: number[], secure: boolean, slot: StateSlot = "normal") {
   const value = seal(JSON.stringify({ digest: digest(state), starts, expiresAt: Date.now() + 24 * 60 * 60_000 }), "aqua-checkpoint");
-  return `${CHECKPOINT_COOKIE}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400${secure ? "; Secure" : ""}`;
+  return `${CHECKPOINT_COOKIE(slot)}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400${secure ? "; Secure" : ""}`;
 }

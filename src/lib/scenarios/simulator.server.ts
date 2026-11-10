@@ -7,8 +7,11 @@ import { dirname, resolve, join } from "node:path";
 import { aquaScenario, type BlueActionCode, type BlueState } from "./aqua";
 import { LabError } from "./errors.server";
 import { readTelemetry } from "./telemetry.server";
-import { BLUE_SCORING, chlorineScenario, createStepRules, stepScore, toTrendRows, type StepRule } from "./blue-steps";
-import type { SessionAccess, SessionView, ReportFields, BlueAnswers, BlueCheckResult, BlueHint, BlueProgress, MaterialView } from "./session-types";
+import {
+  BLUE_SCORING, JUDGMENT_IDS, canAdvance, createBlueScenario, isJudgmentId, judgmentPoints, stateIndex, stepCompleted, toTrendRows,
+  type BlueMode, type BlueProgress, type BlueScenario, type HintLevel, type JudgmentId, type JudgmentRecord,
+} from "./blue-steps";
+import type { SessionAccess, SessionView, ReportFields, BlueCheckResult, BlueHint, BlueProgressView, MaterialView } from "./session-types";
 import type { ScenarioRuntimeAdapter } from "./runtime.server";
 
 type StageId = (typeof aquaScenario.redStages)[number]["id"];
@@ -23,10 +26,14 @@ interface StoredSession {
   attempts: Record<string, { count: number; since: number }>;
   blueState: BlueState;
   blueEvidenceAccepted: boolean;
-  blue?: { startedAt?: string; steps: Partial<Record<BlueActionCode, { mistakes: number; hintLevel: number }>> };
+  /** normal: 通常 / practice: Blueだけの練習。未設定は normal */
+  mode?: BlueMode;
+  /** 判断ごとの記録(回答・誤答回数・ヒントの段階)。得点は保存せず、表示のたびに計算する。steps は旧形式 */
+  blue?: { startedAt?: string; judgments?: Partial<Record<JudgmentId, StoredJudgment>>; recoveryObserved?: number; steps?: unknown };
   reports: { red: ReportFields | null; blue: ReportFields | null };
   events: SessionView["events"];
 }
+type StoredJudgment = Omit<JudgmentRecord, "points">;
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 function fail(code: string, message: string, status = 400): never { throw new LabError(code, message, status); }
 function stageId(value: string): StageId {
@@ -39,6 +46,7 @@ function record(s: StoredSession, type: string, id?: string) {
 }
 function nextStage(s: StoredSession) { return aquaScenario.redStages.find(x => !s.completedStages.includes(x.id))?.id ?? null; }
 function requireStage(s: StoredSession, id: StageId) {
+  if (s.mode === "practice") fail("PRACTICE_BLUE_ONLY", "練習モードでは Blue Team だけを操作できます。", 409);
   const current = nextStage(s);
   if (!s.completedStages.includes(id) && id !== current) fail("STAGE_LOCKED", "前のステージを完了してください。", 409);
 }
@@ -53,27 +61,59 @@ const fieldOk = (v: unknown) => typeof v === "string" && v.trim().length >= 10 &
 function reportComplete(r: ReportFields | null, track: "red" | "blue" = "red"): boolean {
   return !!r && [r.observations, r.evidence, r.timeline, r.improvements, ...(track === "blue" ? [r.impact] : [])].every(fieldOk);
 }
-// 防御パートの StepRule。固定教材(fixtures/blue)から一度だけ組み立てる。
-let rulesCache: readonly StepRule[] | undefined;
-function blueRules() {
-  return rulesCache ??= createStepRules(chlorineScenario, { trend: toTrendRows(readTelemetry()), recovery: toTrendRows(readTelemetry(true)) });
+// 防御パートの判断定義。固定教材(fixtures/blue)から一度だけ組み立てる。
+let scenarioCache: BlueScenario | undefined;
+function blueScenario() {
+  return scenarioCache ??= createBlueScenario({ trend: toTrendRows(readTelemetry()), recovery: toTrendRows(readTelemetry(true)) });
 }
-const blueOrder: BlueState[] = ["anomaly_detected", "investigating", "input_isolated", "safe_mode", "verified", "recovered"];
-function blueProgress(s: StoredSession): BlueProgress {
-  const reached = blueOrder.indexOf(s.blueState);
-  const steps = Object.fromEntries(blueRules().map(rule => {
-    const rec = s.blue?.steps[rule.code] ?? { mistakes: 0, hintLevel: 0 };
-    const completed = blueOrder.indexOf(rule.to) <= reached;
-    return [rule.code, { ...rec, completed, max: rule.points, points: completed ? stepScore(rule, rec) : 0 }];
-  })) as BlueProgress["steps"];
-  return { startedAt: s.blue?.startedAt ?? null, steps };
+const isPractice = (s: StoredSession) => s.mode === "practice";
+/** 保存された判断の記録を、型と範囲を確かめて読み込む。旧形式(STEP 単位)の進捗は、完了済み STEP の判断を正解として移行する */
+function storedJudgments(s: StoredSession): Record<JudgmentId, StoredJudgment> {
+  const saved = s.blue?.judgments ?? {};
+  const out = {} as Record<JudgmentId, StoredJudgment>;
+  for (const id of JUDGMENT_IDS) {
+    const r = saved[id];
+    const empty: StoredJudgment = { id, solved: false, wrongAttempts: 0, hintLevelUsed: 0 };
+    out[id] = r ? { id, solved: r.solved === true, wrongAttempts: Number.isInteger(r.wrongAttempts) && r.wrongAttempts > 0 ? r.wrongAttempts : 0, hintLevelUsed: ([0, 1, 2, 3].includes(r.hintLevelUsed) ? r.hintLevelUsed : 0) as HintLevel, ...(r.answer !== undefined ? { answer: r.answer } : {}) } : empty;
+  }
+  if (!s.blue?.judgments) for (const step of blueScenario().steps) if (stepCompleted(step, s.blueState)) for (const id of step.judgments) out[id].solved = true;
+  return out;
+}
+function recoveryObserved(s: StoredSession) {
+  const total = blueScenario().ctx.recovery.length;
+  const n = s.blue?.recoveryObserved;
+  if (Number.isInteger(n) && n! >= 0) return Math.min(total, n!);
+  return stateIndex(s.blueState) >= stateIndex("verified") ? total : 0;
+}
+function blueDomain(s: StoredSession): BlueProgress {
+  const scenario = blueScenario();
+  const stored = storedJudgments(s);
+  const judgments = Object.fromEntries(JUDGMENT_IDS.map(id => [id, { ...stored[id], points: judgmentPoints(scenario.byId[id].points, stored[id]) }])) as Record<JudgmentId, JudgmentRecord>;
+  return { state: s.blueState, judgments, recoveryObserved: recoveryObserved(s), startedAt: s.blue?.startedAt ?? "", mode: s.mode ?? "normal" };
+}
+function blueProgress(s: StoredSession): BlueProgressView {
+  const scenario = blueScenario();
+  const p = blueDomain(s);
+  const judgments = Object.fromEntries(JUDGMENT_IDS.map(id => [id, { ...p.judgments[id], max: scenario.byId[id].points }])) as BlueProgressView["judgments"];
+  const steps = Object.fromEntries(scenario.steps.map(step => [step.code, {
+    points: step.judgments.reduce((sum, id) => sum + judgments[id].points, 0),
+    max: step.points,
+    solved: step.judgments.filter(id => judgments[id].solved).length,
+    total: step.judgments.length,
+    completed: stepCompleted(step, s.blueState),
+  }])) as BlueProgressView["steps"];
+  const finishedAt = s.events.find(e => e.type === "RESTORE_SIMULATED_MONITORING")?.at ?? null;
+  return { mode: p.mode, startedAt: s.blue?.startedAt ?? null, finishedAt, recoveryObserved: p.recoveryObserved, judgments, steps };
 }
 function view(s: StoredSession): SessionView {
   const progress = blueProgress(s);
-  const blueActions = Object.values(progress.steps).reduce((sum, step) => sum + step.points, 0);
+  const blueActions = Object.values(progress.judgments).reduce((sum, j) => sum + j.points, 0);
+  const practice = isPractice(s);
   const score = { redFlags: s.completedStages.length * 8, redReport: reportComplete(s.reports.red) ? 10 : 0, blueActions, blueEvidence: s.blueEvidenceAccepted && reportComplete(s.reports.blue, "blue") ? BLUE_SCORING.reportPoints : 0, total: 0 };
-  score.total = score.redFlags + score.redReport + score.blueActions + score.blueEvidence;
-  return { id: s.id, labId: "water-01", mode: "simulator", expiresAt: s.expiresAt, completedStages: s.completedStages, nextStage: nextStage(s), terminal: s.terminal ?? initialTerminal(), blueState: s.blueState, blueEvidenceAccepted: s.blueEvidenceAccepted, blueProgress: progress, reports: s.reports, score, complete: s.completedStages.length === 5 && reportComplete(s.reports.red) && s.blueState === "recovered" && reportComplete(s.reports.blue, "blue"), events: s.events };
+  // 練習モードの得点は「練習」として別枠に表示し、合計(100点)と完了判定には加算しない。
+  score.total = practice ? 0 : score.redFlags + score.redReport + score.blueActions + score.blueEvidence;
+  const complete = !practice && s.completedStages.length === 5 && reportComplete(s.reports.red) && s.blueState === "recovered" && reportComplete(s.reports.blue, "blue");
+  return { id: s.id, labId: "water-01", mode: "simulator", exerciseMode: s.mode ?? "normal", expiresAt: s.expiresAt, completedStages: s.completedStages, nextStage: nextStage(s), terminal: s.terminal ?? initialTerminal(), blueState: s.blueState, blueEvidenceAccepted: s.blueEvidenceAccepted, blueProgress: progress, reports: s.reports, score, complete, events: s.events };
 }
 function logs() { return readFileSync(join(process.cwd(), "fixtures/red/logs/aqua-access.log"), "utf8").trim(); }
 function stage5Answer() {
@@ -124,10 +164,10 @@ export class SimulatorScenarioRuntime implements ScenarioRuntimeAdapter {
     if (!this.memoryDb) fail("INVALID_CLOUD_STATE", "演習データがありません。", 409);
     return JSON.stringify({ version: 1, sessions: this.memoryDb.prepare("SELECT id, data FROM sessions").all() });
   }
-  private insert(db: DatabaseSync) {
+  private insert(db: DatabaseSync, mode: BlueMode = "normal") {
     const token = randomBytes(32).toString("hex");
-    const s: StoredSession = { id: randomUUID(), ownerHash: hash(token), expiresAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(), flags: Object.fromEntries(aquaScenario.redStages.map(stage => [stage.id, `AQUA{${stage.id}_${randomBytes(24).toString("hex")}}`])), completedStages: [], stage5Verified: false, terminal: initialTerminal(), attempts: {}, blueState: "anomaly_detected", blueEvidenceAccepted: false, reports: { red: null, blue: null }, events: [] };
-    record(s, "SESSION_STARTED");
+    const s: StoredSession = { id: randomUUID(), ownerHash: hash(token), expiresAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(), flags: Object.fromEntries(aquaScenario.redStages.map(stage => [stage.id, `AQUA{${stage.id}_${randomBytes(24).toString("hex")}}`])), completedStages: [], stage5Verified: false, terminal: initialTerminal(), attempts: {}, blueState: "anomaly_detected", blueEvidenceAccepted: false, reports: { red: null, blue: null }, events: [], ...(mode === "practice" ? { mode } : {}) };
+    record(s, mode === "practice" ? "PRACTICE_SESSION_STARTED" : "SESSION_STARTED");
     db.prepare("INSERT INTO sessions (id, data) VALUES (?, ?)").run(s.id, JSON.stringify(s));
     return { sessionId: s.id, token, session: view(s) };
   }
@@ -155,7 +195,7 @@ export class SimulatorScenarioRuntime implements ScenarioRuntimeAdapter {
       throw error;
     } finally { this.release(db); }
   }
-  async start(labId: string) {
+  async start(labId: string, mode: BlueMode = "normal") {
     if (labId !== "water-01") fail("LAB_NOT_FOUND", "テスト演習はLAB 01のみ対応しています。", 404);
     const db = this.open();
     try {
@@ -165,16 +205,16 @@ export class SimulatorScenarioRuntime implements ScenarioRuntimeAdapter {
       const count = db.prepare("SELECT count(*) as n FROM starts").get() as { n: number };
       if (count.n >= 10) fail("RATE_LIMITED", "開始回数の上限です。1分後に再試行してください。", 429);
       db.prepare("INSERT INTO starts(at) VALUES (?)").run(Date.now());
-      const result = this.insert(db);
+      const result = this.insert(db, mode === "practice" ? "practice" : "normal");
       db.exec("COMMIT");
       return result;
     } catch (error) { db.exec("ROLLBACK"); throw error; } finally { this.release(db); }
   }
   async getSession(access: SessionAccess) { return this.transaction(access, s => view(s)); }
   async reset(access: SessionAccess) {
-    return this.transaction(access, (_s, db) => {
+    return this.transaction(access, (s, db) => {
       db.prepare("DELETE FROM sessions WHERE id = ?").run(access.sessionId);
-      return this.insert(db);
+      return this.insert(db, s.mode ?? "normal");
     });
   }
   private material(s: StoredSession, stage: string): MaterialView {
@@ -240,62 +280,93 @@ export class SimulatorScenarioRuntime implements ScenarioRuntimeAdapter {
     return this.transaction(access, s => {
       if (!["red", "blue"].includes(track)) fail("INVALID_TRACK", "トラックを選び直してください。");
       if (!reportComplete(report, track)) fail("REPORT_INCOMPLETE", "各項目を10文字以上4000文字以内で記入してください。");
-      if (s.completedStages.length !== 5 || (track === "blue" && s.blueState !== "recovered")) fail("REPORT_LOCKED", "必要な演習手順を先に完了してください。", 409);
+      if (track === "red" && isPractice(s)) fail("PRACTICE_BLUE_ONLY", "練習モードでは Blue Team だけを操作できます。", 409);
+      if ((!isPractice(s) && s.completedStages.length !== 5) || (track === "blue" && s.blueState !== "recovered")) fail("REPORT_LOCKED", "必要な演習手順を先に完了してください。", 409);
+      // 防御レポートは提出後に変更できない(リセットで新しい演習を始めたときだけ再提出できる)。
+      if (track === "blue" && s.reports.blue) fail("REPORT_ALREADY_SUBMITTED", "防御レポートは提出済みです。提出後は変更できません。", 409);
       // Copy only the documented fields to persistence and response.
       s.reports[track] = { observations: report.observations.trim(), evidence: report.evidence.trim(), timeline: report.timeline.trim(), improvements: report.improvements.trim(), ...(track === "blue" ? { impact: report.impact!.trim() } : {}) };
       record(s, `${track.toUpperCase()}_REPORT_SAVED`);
       return view(s);
     });
   }
-  // 防御パート共通: 解放条件・現在の STEP・判断の評価と誤選択の記録。
-  private blueStep(s: StoredSession, action: BlueActionCode) {
-    if (s.completedStages.length !== 5 || !s.reports.red) fail("BLUE_LOCKED", "5つのFLAGと調査レポートを先に提出してください。", 409);
-    const rule = blueRules().find(r => r.code === action);
-    if (!rule) return fail("INVALID_STATE_TRANSITION", "対応手順が見つかりません。", 409);
-    if (rule.from !== s.blueState) fail("INVALID_STATE_TRANSITION", "対応手順の順番が正しくありません。", 409);
-    s.blue ??= { steps: {} };
+  // ---- 防御パート ----
+  // 解放条件: 通常モードは5FLAGと調査レポートの提出後。練習モードは最初から操作できる。
+  private blueUnlocked(s: StoredSession) {
+    if (!isPractice(s) && (s.completedStages.length !== 5 || !s.reports.red)) fail("BLUE_LOCKED", "5つのFLAGと調査レポートを先に提出してください。", 409);
+    s.blue ??= {};
     s.blue.startedAt ??= new Date().toISOString();
-    return rule;
+    // 記録を新形式に揃えてから更新する(旧形式の進捗もここで移行する)
+    s.blue.judgments = storedJudgments(s);
+    s.blue.recoveryObserved = recoveryObserved(s);
+    delete s.blue.steps;
+    return s.blue as { startedAt: string; judgments: Record<JudgmentId, StoredJudgment>; recoveryObserved: number };
   }
-  private judgeBlue(s: StoredSession, rule: StepRule, answers: BlueAnswers) {
-    attempt(s, `blue-${rule.code}`, 20);
-    const result = rule.evaluate(answers);
-    if (!result.ok && result.inappropriate) {
-      const rec = s.blue!.steps[rule.code] ??= { mistakes: 0, hintLevel: 0 };
-      rec.mistakes++;
-    }
-    return result;
+  /** 判断が属する STEP が進行中であることを確かめる */
+  private blueJudgment(s: StoredSession, judgmentId: string) {
+    if (!isJudgmentId(judgmentId)) fail("INVALID_JUDGMENT", "判断が見つかりません。", 400);
+    const blue = this.blueUnlocked(s);
+    const spec = blueScenario().byId[judgmentId];
+    const step = blueScenario().steps.find(x => x.code === spec.code)!;
+    const rec = blue.judgments[judgmentId];
+    if (!rec.solved && s.blueState !== step.from) fail("INVALID_STATE_TRANSITION", "前のSTEPを完了すると、このSTEPの判断ができます。", 409);
+    return { spec, rec, blue };
   }
-  async checkBlueStep(access: SessionAccess, action: BlueActionCode, answers: BlueAnswers = {}): Promise<{ result: BlueCheckResult; session: SessionView }> {
+  async checkBlueJudgment(access: SessionAccess, judgmentId: string, answer: unknown): Promise<{ result: BlueCheckResult; session: SessionView }> {
     return this.transaction(access, s => {
-      const rule = this.blueStep(s, action);
-      const { ok, feedback } = this.judgeBlue(s, rule, answers);
-      record(s, ok ? "BLUE_CHECK_PASSED" : "BLUE_CHECK_REJECTED", rule.code);
-      return { result: { ok, feedback }, session: view(s) };
+      const { spec, rec } = this.blueJudgment(s, judgmentId);
+      const id = spec.id;
+      // 正解済みの判断は固定。重ねて判定しても記録も得点も変わらない(冪等)。
+      if (rec.solved) return { result: { judgmentId: id, ok: true, kind: "ok" as const, feedback: "この判断は正解済みです。" }, session: view(s) };
+      if (!spec.canAnswer(blueDomain(s))) {
+        record(s, "BLUE_JUDGMENT_BLOCKED", id);
+        return { result: { judgmentId: id, ok: false, kind: "info" as const, feedback: spec.blockedMessage }, session: view(s) };
+      }
+      attempt(s, `blue-${id}`, 20);
+      const r = spec.validate(answer, blueDomain(s));
+      if (r.ok) { rec.solved = true; rec.answer = r.answer; }
+      else if (r.counted) rec.wrongAttempts++;
+      record(s, r.ok ? "BLUE_JUDGMENT_PASSED" : r.counted ? "BLUE_JUDGMENT_WRONG" : "BLUE_JUDGMENT_NOT_JUDGED", id);
+      const result: BlueCheckResult = { judgmentId: id, ok: r.ok, kind: r.kind, feedback: r.feedback, ...(r.details ? { details: r.details } : {}), ...(r.note ? { note: r.note } : {}) };
+      return { result, session: view(s) };
     });
   }
-  async getBlueHint(access: SessionAccess, action: BlueActionCode, index: number): Promise<BlueHint> {
+  async getBlueHint(access: SessionAccess, judgmentId: string, index: number): Promise<BlueHint> {
     return this.transaction(access, s => {
-      const rule = this.blueStep(s, action);
+      const { spec, rec } = this.blueJudgment(s, judgmentId);
       if (!Number.isInteger(index) || index < 0 || index > 2) fail("INVALID_HINT", "ヒントを選び直してください。");
-      const rec = s.blue!.steps[rule.code] ??= { mistakes: 0, hintLevel: 0 };
-      rec.hintLevel = Math.max(rec.hintLevel, index + 1);
-      record(s, `BLUE_HINT_${index + 1}_VIEWED`, rule.code);
-      return { hint: rule.hints[index], level: index, step: rule.title };
+      // 正解後のふり返りでは、ヒントを見ても得点に影響しない。
+      if (!rec.solved) rec.hintLevelUsed = Math.max(rec.hintLevelUsed, index + 1) as HintLevel;
+      record(s, `BLUE_HINT_${index + 1}_VIEWED`, spec.id);
+      return { hint: spec.hints[index], level: index, judgmentId: spec.id, title: spec.title };
     });
   }
-  async performBlueAction(access: SessionAccess, action: BlueActionCode, answers: BlueAnswers = {}) {
+  async observeRecovery(access: SessionAccess): Promise<SessionView> {
     return this.transaction(access, s => {
-      const rule = this.blueStep(s, action);
-      // 状態遷移は StepRule.canAdvance(evaluate().ok)を満たしたときだけ。誤りは理由つきで返す。
-      const result = this.judgeBlue(s, rule, answers);
-      if (!result.ok) {
-        const message = result.feedback.map(f => f.message).join(" ");
-        if (action === "VERIFY_STABLE") fail("VERIFICATION_REQUIRED", message, 409);
-        fail("EVIDENCE_REQUIRED", message);
+      const { rec, blue } = this.blueJudgment(s, "4-4");
+      if (rec.solved) return view(s);
+      if (!blue.judgments["4-3"].solved) fail("ORDER_REQUIRED", "先に表示用入力を復旧データへ切り替えてください。", 409);
+      if (blue.recoveryObserved >= blueScenario().ctx.recovery.length) fail("NO_MORE_RECORDS", "取得できる復旧データはすべて取得しました。", 409);
+      blue.recoveryObserved++;
+      record(s, "BLUE_RECOVERY_OBSERVED", "4-4");
+      return view(s);
+    });
+  }
+  async performBlueAction(access: SessionAccess, action: BlueActionCode) {
+    return this.transaction(access, s => {
+      this.blueUnlocked(s);
+      const step = blueScenario().steps.find(x => x.code === action);
+      if (!step) return fail("INVALID_STATE_TRANSITION", "対応手順が見つかりません。", 409);
+      // 同じ遷移の重複(二度押し・再送)は何もしない。得点は判断の記録から計算するため二重に加算されない。
+      if (stepCompleted(step, s.blueState)) return view(s);
+      if (step.from !== s.blueState) fail("INVALID_STATE_TRANSITION", "対応手順の順番が正しくありません。", 409);
+      // 状態遷移は canAdvance(STEP の判断がすべて正解)を満たしたときだけ。
+      if (!canAdvance(blueScenario(), blueDomain(s), action)) {
+        const left = step.judgments.filter(id => !s.blue!.judgments![id]!.solved);
+        fail(action === "VERIFY_STABLE" ? "VERIFICATION_REQUIRED" : "STEP_INCOMPLETE", `このSTEPの判断がすべて正解になると遷移できます(残り: ${left.join("、")})。`, 409);
       }
       if (action === "ACKNOWLEDGE_ANOMALY") s.blueEvidenceAccepted = true;
-      s.blueState = rule.to; record(s, action);
+      s.blueState = step.to; record(s, action);
       return view(s);
     });
   }

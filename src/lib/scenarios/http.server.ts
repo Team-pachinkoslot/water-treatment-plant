@@ -3,9 +3,9 @@ import { getScenarioMode, type StartedSession } from "./runtime.server";
 import type { SessionAccess, ReportFields } from "./session-types";
 import type { BlueActionCode } from "./aqua";
 import { SimulatorScenarioRuntime } from "./simulator.server";
-import { restoreCloudState, encodeCloudState, checkpointCookie, recentStarts } from "./cloud-state.server";
+import { restoreCloudState, encodeCloudState, checkpointCookie, recentStarts, type StateSlot } from "./cloud-state.server";
 
-const COOKIE = "aqua_session";
+const COOKIE = (slot: StateSlot) => (slot === "practice" ? "aqua_practice_session" : "aqua_session");
 const noStore = { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" };
 function fail(code: string, message: string, status = 400): never { throw new LabError(code, message, status); }
 function checkRequest(request: Request, mutation = false) {
@@ -24,24 +24,25 @@ function checkRequest(request: Request, mutation = false) {
     if (!request.headers.get("content-type")?.startsWith("application/json")) fail("INVALID_CONTENT_TYPE", "JSONで送信してください。", 415);
   }
 }
-export function sessionAccess(request: Request, id?: string): SessionAccess {
-  const cookie = request.headers.get("cookie")?.split(";").map(v => v.trim()).find(v => v.startsWith(`${COOKIE}=`))?.slice(COOKIE.length + 1);
+export function sessionAccess(request: Request, id?: string, slot: StateSlot = "normal"): SessionAccess {
+  const name = COOKIE(slot);
+  const cookie = request.headers.get("cookie")?.split(";").map(v => v.trim()).find(v => v.startsWith(`${name}=`))?.slice(name.length + 1);
   const match = cookie?.match(/^([a-f0-9-]{36})\.([a-f0-9]{64})$/);
   if (!match) fail("AUTHENTICATION_REQUIRED", "テスト演習を開始してください。", 401);
   if (id && id !== "current" && id !== match[1]) fail("SESSION_NOT_FOUND", "セッションが見つかりません。", 404);
   return { sessionId: match[1], token: match[2] };
 }
-function response(value: Record<string, unknown>, request: Request, status = 200, runtime?: SimulatorScenarioRuntime, starts: number[] = [], started?: StartedSession) {
+function response(value: Record<string, unknown>, request: Request, status = 200, runtime?: SimulatorScenarioRuntime, starts: number[] = [], started?: StartedSession, slot: StateSlot = "normal") {
   const headers = new Headers(noStore);
   if (runtime) {
     const snapshot = runtime.cloudSnapshot();
     if (JSON.parse(snapshot).sessions.length === 1) {
       const cloudState = encodeCloudState(snapshot);
       value = { ...value, cloudState };
-      headers.append("Set-Cookie", checkpointCookie(cloudState, starts, new URL(request.url).protocol === "https:"));
+      headers.append("Set-Cookie", checkpointCookie(cloudState, starts, new URL(request.url).protocol === "https:", slot));
     }
   }
-  if (started) headers.append("Set-Cookie", `${COOKIE}=${started.sessionId}.${started.token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400${new URL(request.url).protocol === "https:" ? "; Secure" : ""}`);
+  if (started) headers.append("Set-Cookie", `${COOKIE(slot)}=${started.sessionId}.${started.token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400${new URL(request.url).protocol === "https:" ? "; Secure" : ""}`);
   return Response.json(value, { status, headers });
 }
 async function body(request: Request): Promise<Record<string, unknown>> {
@@ -63,9 +64,6 @@ async function body(request: Request): Promise<Record<string, unknown>> {
   } catch { return fail("INVALID_BODY", "入力を確認してください。"); }
 }
 function text(value: unknown) { return typeof value === "string" ? value : ""; }
-function answersObject(data: unknown): Record<string, unknown> {
-  return data && typeof data === "object" && !Array.isArray(data) ? data as Record<string, unknown> : {};
-}
 function evidenceFields(data: unknown): Record<string, string> {
   if (!data || typeof data !== "object" || Array.isArray(data)) return {};
   return Object.fromEntries(Object.entries(data).filter(([, value]) => typeof value === "string")) as Record<string, string>;
@@ -73,28 +71,33 @@ function evidenceFields(data: unknown): Record<string, string> {
 export async function handleSessionRequest(request: Request, id?: string, operation?: string) {
   let runtime: SimulatorScenarioRuntime | undefined;
   let starts: number[] = [];
+  let slot: StateSlot = "normal";
   try {
     checkRequest(request, request.method !== "GET");
     const data = request.method === "POST" ? await body(request) : {};
+    // 練習モードは別の Cookie・保存データで扱い、通常の進捗に影響させない。
+    slot = data.slot === "practice" ? "practice" : "normal";
     if (request.method === "POST" && !id) {
-      starts = recentStarts(request);
+      starts = recentStarts(request, slot);
       runtime = SimulatorScenarioRuntime.fromCloudSnapshot(undefined, starts);
-      const started = await runtime.start(text(data.labId));
+      const started = await runtime.start(text(data.labId), slot);
       starts.push(Date.now());
-      return response({ session: started.session }, request, 201, runtime, starts, started);
+      return response({ session: started.session }, request, 201, runtime, starts, started, slot);
     }
-    const access = sessionAccess(request, id);
-    const snapshot = restoreCloudState(request, data.cloudState);
-    starts = recentStarts(request);
+    const access = sessionAccess(request, id, slot);
+    const snapshot = restoreCloudState(request, data.cloudState, slot);
+    starts = recentStarts(request, slot);
     runtime = SimulatorScenarioRuntime.fromCloudSnapshot(snapshot, starts);
-    const ok = (value: Record<string, unknown>) => response(value, request, 200, runtime, starts);
-    if ((!operation && request.method === "GET") || (operation === "restore" && request.method === "POST")) return ok({ session: await runtime.getSession(access) });
+    const current = await runtime.getSession(access);
+    if (current.exerciseMode !== slot) fail("INVALID_CLOUD_STATE", "演習データの種類が一致しません。新しい演習を開始してください。", 409);
+    const ok = (value: Record<string, unknown>) => response(value, request, 200, runtime, starts, undefined, slot);
+    if ((!operation && request.method === "GET") || (operation === "restore" && request.method === "POST")) return ok({ session: current });
     if (operation === "materials") return fail("COMMAND_REQUIRED", "教材はターミナルのコマンドで調査してください。", 409);
     if (operation === "commands") return ok(await runtime.executeCommand(access, text(data.stageId), text(data.command)));
     if (request.method !== "POST") return fail("NOT_FOUND", "操作が見つかりません。", 404);
     if (operation === "reset") {
       const started = await runtime.reset(access);
-      return response({ session: started.session }, request, 201, runtime, starts, started);
+      return response({ session: started.session }, request, 201, runtime, starts, started, slot);
     }
     if (operation === "flags") return ok({ session: await runtime.submitFlag(access, text(data.stageId), text(data.flag), evidenceFields(data.evidence)) });
     if (operation === "hints") {
@@ -107,19 +110,18 @@ export async function handleSessionRequest(request: Request, id?: string, operat
       const report: ReportFields = { observations: text(fields.observations), evidence: text(fields.evidence), timeline: text(fields.timeline), improvements: text(fields.improvements), ...(text(data.track) === "blue" ? { impact: text(fields.impact) } : {}) };
       return ok({ session: await runtime.submitReport(access, text(data.track) as "red" | "blue", report) });
     }
-    if (operation === "blue-actions") {
-      return ok({ session: await runtime.performBlueAction(access, text(data.action) as BlueActionCode, answersObject(data.answers)) });
-    }
-    if (operation === "blue-check") return ok(await runtime.checkBlueStep(access, text(data.action) as BlueActionCode, answersObject(data.answers)));
+    if (operation === "blue-actions") return ok({ session: await runtime.performBlueAction(access, text(data.action) as BlueActionCode) });
+    if (operation === "blue-check") return ok(await runtime.checkBlueJudgment(access, text(data.judgmentId), data.answer));
+    if (operation === "blue-observe") return ok({ session: await runtime.observeRecovery(access) });
     if (operation === "blue-hints") {
-      const hint = await runtime.getBlueHint(access, text(data.action) as BlueActionCode, typeof data.index === "number" ? data.index : -1);
+      const hint = await runtime.getBlueHint(access, text(data.judgmentId), typeof data.index === "number" ? data.index : -1);
       return ok({ ...hint, session: await runtime.getSession(access) });
     }
     return fail("NOT_FOUND", "操作が見つかりません。", 404);
   } catch (error) {
     if (error instanceof LabError) {
       const maySave = ![401, 404, 410, 503].includes(error.status);
-      return response({ error: { code: error.code, message: error.message } }, request, error.status, maySave ? runtime : undefined, starts);
+      return response({ error: { code: error.code, message: error.message } }, request, error.status, maySave ? runtime : undefined, starts, undefined, slot);
     }
     return response({ error: { code: "INTERNAL_ERROR", message: "演習データを処理できませんでした。再読込してお試しください。" } }, request, 500);
   } finally { runtime?.dispose(); }

@@ -1,5 +1,5 @@
 import { commandFlows } from "./command-flows";
-import { blueAnswers, blueReport } from "./blue-answers";
+import { blueReport, judgmentAnswers, solveBlue, type BlueDriver } from "./blue-answers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { randomBytes } from "node:crypto";
 import { handleSessionRequest } from "../src/lib/scenarios/http.server";
@@ -29,6 +29,18 @@ class Browser {
     if (data.session) this.id = data.session.id;
     return { response, data };
   }
+}
+function httpDriver(browser: Browser): BlueDriver {
+  const ok = async (operation: string, payload: Record<string, unknown>) => {
+    const r = await browser.call(operation, payload);
+    expect(r.response.status, JSON.stringify(r.data.error)).toBe(200);
+    return r.data;
+  };
+  return {
+    check: async (judgmentId, answer) => (await ok("blue-check", { judgmentId, answer })).result,
+    observe: () => ok("blue-observe", {}),
+    act: action => ok("blue-actions", { action }),
+  };
 }
 const report = { observations: "公開サービスとWebページの手掛かりを確認した。", evidence: "模擬ログと独立した観測値を比較して証拠を記録した。", timeline: "UTCの順番で調査、隔離、安全モード、正常確認を行った。", improvements: "公開情報を分離し復旧条件を確認してから正常監視へ戻す。" };
 async function solveRed(browser: Browser) {
@@ -75,25 +87,56 @@ describe("Vercel-only exercise transport", () => {
     expect((await browser.call("materials", { stageId: "S05" })).response.status).toBe(409);
     await solveRed(browser);
     expect((await browser.call("blue-actions", { action: "RESTORE_SIMULATED_MONITORING" })).data.error.code).toBe("INVALID_STATE_TRANSITION");
-    const hint = await browser.call("blue-hints", { action: "ACKNOWLEDGE_ANOMALY", index: 0 });
+    const hint = await browser.call("blue-hints", { judgmentId: "1-1", index: 0 });
     expect(hint.data.hint).toContain("0.20");
-    const check = await browser.call("blue-check", { action: "ACKNOWLEDGE_ANOMALY", answers: { ...blueAnswers.ACKNOWLEDGE_ANOMALY, start: "14:01" } });
-    expect(check.data.result.ok).toBe(false);
+    const check = await browser.call("blue-check", { judgmentId: "1-1", answer: "14:01" });
+    expect(check.data.result).toMatchObject({ ok: false, kind: "wrong" });
     expect(check.data.session.blueState).toBe("anomaly_detected");
-    for (const action of ["ACKNOWLEDGE_ANOMALY", "ISOLATE_TRAINING_FEED", "ENTER_SIMULATED_SAFE_MODE"] as const) expect((await browser.call("blue-actions", { action, answers: blueAnswers[action] })).response.status).toBe(200);
-    expect((await browser.call("blue-actions", { action: "VERIFY_STABLE", answers: { ...blueAnswers.VERIFY_STABLE, confirmed: ["14:10", "14:11"] } })).data.error.code).toBe("VERIFICATION_REQUIRED");
-    expect((await browser.call("blue-actions", { action: "VERIFY_STABLE", answers: blueAnswers.VERIFY_STABLE })).response.status).toBe(200);
-    expect((await browser.call("blue-actions", { action: "RESTORE_SIMULATED_MONITORING", answers: blueAnswers.RESTORE_SIMULATED_MONITORING })).response.status).toBe(200);
+    expect((await browser.call("blue-actions", { action: "ACKNOWLEDGE_ANOMALY" })).data.error.code).toBe("STEP_INCOMPLETE");
+    expect((await browser.call("blue-check", { judgmentId: "1-1", answer: judgmentAnswers["1-1"] })).data.result.ok).toBe(true);
+    // 再読み込み相当(restore)でも判断の進捗が残る
+    expect((await browser.call("restore", {}, "current")).data.session.blueProgress.judgments["1-1"]).toMatchObject({ solved: true, points: 2, wrongAttempts: 1 });
+    await solveBlue(httpDriver(browser));
+    expect((await browser.call("restore", {}, "current")).data.session).toMatchObject({ blueState: "recovered", score: { blueActions: 41 } });
     const completed = await browser.call("report", { track: "blue", report: blueReport });
-    expect(completed.data.session).toMatchObject({ complete: true, score: { total: 100 } });
+    expect(completed.data.session).toMatchObject({ complete: true, score: { total: 99 } });
+    expect((await browser.call("report", { track: "blue", report: blueReport })).data.error.code).toBe("REPORT_ALREADY_SUBMITTED");
     const restored = await browser.call("restore", {}, "current");
-    expect(restored.data.session).toEqual(completed.data.session);
+    // 再提出の拒否は監査履歴にだけ残る。進捗・得点・レポートは提出時のまま
+    expect({ ...restored.data.session, events: [] }).toEqual({ ...completed.data.session, events: [] });
+    expect(restored.data.session.events.at(-1).type).toBe("REJECTED_REPORT_ALREADY_SUBMITTED");
     const oldId = browser.id; const oldState = browser.cloudState;
     expect((await browser.call("reset")).response.status).toBe(201);
     expect(browser.id).not.toBe(oldId);
     expect((await browser.call("restore", {}, oldId)).response.status).toBe(404);
     browser.cloudState = oldState;
     expect((await browser.call("restore")).data.error.code).toBe("STALE_CLOUD_STATE");
+  });
+  it("keeps Blue-only practice in its own cookies and storage, separate from the normal exercise", async () => {
+    const browser = new Browser();
+    await browser.call("", { labId: "water-01" });
+    const normal = { id: browser.id, cloudState: browser.cloudState };
+    const practice = new Browser(); practice.cookies = new Map(browser.cookies);
+    const call = (operation = "", payload: Record<string, unknown> = {}) => practice.call(operation, { ...payload, slot: "practice" });
+    const started = await call("", { labId: "water-01" });
+    expect(started.response.status).toBe(201);
+    expect(started.response.headers.getSetCookie().map(c => c.split("=")[0]).sort()).toEqual(["aqua_practice_checkpoint", "aqua_practice_session"]);
+    expect(started.data.session).toMatchObject({ exerciseMode: "practice" });
+    const p: BlueDriver = {
+      check: async (judgmentId, answer) => (await call("blue-check", { judgmentId, answer })).data.result,
+      observe: () => call("blue-observe"),
+      act: action => call("blue-actions", { action }),
+    };
+    await solveBlue(p);
+    const done = await call("report", { track: "blue", report: blueReport });
+    expect(done.data.session).toMatchObject({ exerciseMode: "practice", complete: false, score: { blueActions: 42, total: 0 } });
+    // 通常の演習は影響を受けない
+    browser.cookies = new Map([...practice.cookies].filter(([k]) => !k.startsWith("aqua_practice"))); browser.cloudState = normal.cloudState; browser.id = normal.id;
+    const restored = await browser.call("restore", {}, "current");
+    expect(restored.data.session).toMatchObject({ exerciseMode: "normal", blueState: "anomaly_detected", score: { total: 0 } });
+    // 練習の保存データを通常のスロットへ持ち込んでも受け付けない
+    browser.cloudState = practice.cloudState;
+    expect((await browser.call("restore", {}, "current")).response.status).toBe(409);
   });
   it("refuses modified state, another browser, and stale checkpoints", async () => {
     const browser = new Browser(); await browser.call("", { labId: "water-01" });

@@ -3317,3 +3317,37 @@ main {
   .blue-process { padding: 16px; }
   .hint-levels { flex-wrap: wrap; }
 }
+
+/* ===== Blue Team: 判断カード・練習モード ===== */
+.judgment-list { display: grid; gap: 14px; }
+.judgment-card { border: 1px solid var(--border); border-left: 3px solid var(--border); border-radius: 8px; padding: 16px 18px; display: grid; gap: 12px; min-width: 0; }
+.judgment-card.is-solved { border-left-color: var(--cyan); background: #8ab8bd08; }
+.judgment-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 14px; }
+.judgment-head h4 { margin: 0; font-size: 14px; color: var(--text); display: flex; align-items: baseline; gap: 10px; }
+.judgment-id { font: 12px var(--mono); color: var(--orange); border: 1px solid #966f56; border-radius: 4px; padding: 1px 6px; }
+.judgment-status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.judgment-status.is-solved { color: var(--cyan); }
+.judgment-card label { display: grid; gap: 6px; font-size: 13px; margin: 0; }
+.judgment-card .safe-mode-choices { margin: 6px 0 0; }
+.judgment-card .safe-mode-choices label { display: flex; }
+.judgment-card fieldset:disabled label { cursor: default; opacity: .8; }
+.judgment-number { display: flex; align-items: center; gap: 8px; max-width: 240px; }
+.judgment-number span { color: var(--muted); }
+.judgment-feedback { margin: 0; }
+.judgment-feedback p { margin: 0; display: block; }
+.judgment-feedback svg { vertical-align: -2px; }
+.judgment-feedback ul { margin: 6px 0 0; padding-left: 20px; }
+.judgment-feedback.is-missing, .judgment-feedback.is-info { border-color: var(--muted); background: #939da40d; }
+.judgment-note { margin-top: 6px !important; color: var(--orange); }
+.judgment-hints { border-top: 1px dashed var(--border); padding-top: 10px; }
+.judgment-hints .hint-levels { margin: 10px 0; }
+.judgment-hints .command-hint-heading > span { font-size: 11px; }
+.judgment-extra { display: grid; gap: 8px; }
+.practice-mode-bar { position: sticky; top: 0; z-index: 40; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 0 0 16px; padding: 10px 16px; background: #2a1f1a; border: 1px solid var(--orange); border-radius: 8px; font-size: 13px; }
+.practice-mode-badge { font-weight: 700; color: var(--bg); background: var(--orange); border-radius: 4px; padding: 2px 10px; }
+.practice-mode-bar .text-link { margin-left: auto; }
+.practice-mode-entry { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; border: 1px dashed var(--border); border-radius: 8px; padding: 12px 16px; margin: 16px 0; }
+.practice-mode-entry p { margin: 0; color: var(--muted); font-size: 13px; }
+.review-points { color: var(--muted); font-size: 12px; line-height: 1.8; }
+.results-step-row th, .results-step-row td { color: var(--cyan); }
+@media (max-width: 700px) { .judgment-card { padding: 14px 12px; } .practice-mode-bar .text-link { margin-left: 0; } }

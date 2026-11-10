@@ -2,11 +2,10 @@
 import { AlertTriangle, BookOpen, CheckCircle2, ClipboardList, Droplets, Gauge, ShieldAlert } from "lucide-react";
 import { INCIDENT, alarmList, glossary, opLog, plcTags, processUnits } from "@/lib/scenarios/incident";
 import type { BlueState } from "@/lib/scenarios/aqua";
+import { deriveDisplay, type JudgmentId } from "@/lib/scenarios/blue-steps";
 import { Term } from "./glossary";
 
 const num = (n: number | undefined, unit: string) => (n === undefined ? "—" : `${n.toFixed(unit === "m" ? 1 : 2)} ${unit}`);
-const isolatedStates: BlueState[] = ["input_isolated", "safe_mode", "verified"];
-const manualStates: BlueState[] = ["safe_mode", "verified"];
 
 // §2.1 引継ぎメモ。
 export function IncidentMemo() {
@@ -47,13 +46,13 @@ export function AlarmList({ state }: { state: BlueState }) {
   );
 }
 
-// §4.3 中央監視室HMI風パネル(注入ポンプ状態・アラーム・操作ログ)。
-export function HmiOverview({ blueState, showLog = true }: { blueState: BlueState; showLog?: boolean }) {
-  const manual = manualStates.includes(blueState);
-  const isolated = isolatedStates.includes(blueState);
-  const restored = blueState === "verified" || blueState === "recovered";
-  // 承認外の設定(0.40)の間は回転数が下がる。手動の固定注入・復旧後はベースライン相当。
-  const rpm = restored || manual ? INCIDENT.pumpRpm.baseline : INCIDENT.pumpRpm.changed;
+// §4.3 中央監視室HMI風パネル(注入ポンプ状態・アラーム・操作ログ)。正解済みの判断(solved)も表示に反映する。
+const feedLabel = { connected: "接続(要確認)", isolated: "隔離済み", recovery: "隔離済み(復旧データで確認中)", restored: "接続(復旧データ)" } as const;
+export function HmiOverview({ blueState, solved = [], showLog = true }: { blueState: BlueState; solved?: readonly JudgmentId[]; showLog?: boolean }) {
+  const d = deriveDisplay(blueState, solved);
+  const manual = d.mode === "MAN";
+  // 承認外の設定(0.40)の間は回転数が下がる。手動の固定注入・設定を戻した後はベースライン相当。
+  const rpm = d.spRestored || manual ? INCIDENT.pumpRpm.baseline : INCIDENT.pumpRpm.changed;
   return (
     <section className="panel hmi-panel" aria-label="中央監視室HMIの状態">
       <div className="eyebrow"><Gauge size={13} /> CENTRAL HMI / <Term name="中央監視室">中央監視室</Term></div>
@@ -65,19 +64,23 @@ export function HmiOverview({ blueState, showLog = true }: { blueState: BlueStat
         </div>
         <div>
           <dt>塩素注入ポンプ({INCIDENT.changedPlc})</dt>
-          <dd className={manual ? "alarm-low" : ""}>{manual ? "MAN" : "AUTO"} / 運転 / {rpm} min⁻¹</dd>
+          <dd className={manual ? "alarm-low" : ""}>注入ポンプ: {d.mode} / 運転 / {rpm} min⁻¹</dd>
         </div>
         <div>
           <dt>注入率の設定値(<Term name="SP">SP</Term>)</dt>
-          <dd className={restored ? "" : "alarm-low"}>{restored ? INCIDENT.baselineSp.toFixed(2) : INCIDENT.changedSp.toFixed(2)} {INCIDENT.unit}{manual ? "(手動の固定注入)" : ""}</dd>
+          <dd className={d.spRestored ? "" : "alarm-low"}>{d.sp.toFixed(2)} {INCIDENT.unit}{d.spRestored ? "(ベースライン)" : ""}{manual ? "(手動の固定注入)" : ""}</dd>
         </div>
         <div>
           <dt>表示用データ入力</dt>
-          <dd className={isolated ? "alarm-low" : ""}>{isolated ? "隔離中" : blueState === "recovered" ? "復旧データ" : "接続(要確認)"}</dd>
+          <dd className={d.feed === "connected" || d.feed === "isolated" ? "alarm-low" : ""}>{feedLabel[d.feed]}</dd>
         </div>
         <div>
           <dt>遠隔からの設定変更</dt>
-          <dd>{manual ? "一時禁止" : "許可"}</dd>
+          <dd className={d.remoteBlocked ? "alarm-low" : ""}>{d.remoteBlocked ? "禁止" : "許可"}</dd>
+        </div>
+        <div>
+          <dt>アカウント {INCIDENT.extraAdminAccount}</dt>
+          <dd className={d.accountDisabled ? "" : "alarm-low"}>{d.accountDisabled ? "無効" : "有効"}</dd>
         </div>
       </dl>
       <AlarmList state={blueState} />

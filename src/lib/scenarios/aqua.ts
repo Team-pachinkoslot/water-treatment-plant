@@ -94,7 +94,7 @@ export const aquaScenario = {
       "code": "ISOLATE_TRAINING_FEED",
       "from": "investigating",
       "to": "input_isolated",
-      "label": "表示用データ入力を隔離する"
+      "label": "表示用入力を隔離する"
     },
     {
       "code": "ENTER_SIMULATED_SAFE_MODE",
@@ -112,7 +112,7 @@ export const aquaScenario = {
       "code": "RESTORE_SIMULATED_MONITORING",
       "from": "verified",
       "to": "recovered",
-      "label": "自動運転(AUTO)へ復旧する"
+      "label": "模擬監視を復旧する"
     }
   ]
 } as const satisfies ScenarioDefinition;
