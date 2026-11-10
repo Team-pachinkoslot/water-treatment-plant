@@ -29,13 +29,29 @@ const blueDefs = createBlueScenario({ trend: [], recovery: [] });
 type ApiData = { session?: SessionView; cloudState?: string; flag?: string; result?: TerminalResult; error?: { code: string; message: string } } & Partial<CommandHint>;
 // 保存先は通常の演習と練習モードで分ける(練習は通常の進捗に影響させない)。
 type Slot = "normal" | "practice";
+// アップデートで仕様が変わっても回答データを引き継ぐため、保存キー名は変えない。
+// 中身の形式の違いはサーバー側(migrateSession)で吸収する。
+// やむを得ずキー名を変えるときは、旧キーを LEGACY_STORAGE_KEYS に追加すれば初回読込時に移し替える。
 const STORAGE_KEYS: Record<Slot, string> = { normal: "aqua-cloud-exercise-v1", practice: "aqua-blue-practice-v1" };
+const LEGACY_STORAGE_KEYS: Record<Slot, readonly string[]> = { normal: [], practice: [] };
 function savedState(slot: Slot): string | null {
-  try { return window.localStorage.getItem(STORAGE_KEYS[slot]); }
+  try {
+    const storage = window.localStorage;
+    const current = storage.getItem(STORAGE_KEYS[slot]);
+    if (current) return current;
+    for (const legacy of LEGACY_STORAGE_KEYS[slot]) {
+      const value = storage.getItem(legacy);
+      if (!value) continue;
+      storage.setItem(STORAGE_KEYS[slot], value);
+      storage.removeItem(legacy);
+      return value;
+    }
+    return null;
+  }
   catch { throw new Error("ブラウザの保存機能を利用できません。サイトデータの保存を許可してください。"); }
 }
 function clearSavedState(slot: Slot) {
-  try { window.localStorage.removeItem(STORAGE_KEYS[slot]); } catch { /* 保存領域が使えない場合は何もしない */ }
+  try { for (const k of [STORAGE_KEYS[slot], ...LEGACY_STORAGE_KEYS[slot]]) window.localStorage.removeItem(k); } catch { /* 保存領域が使えない場合は何もしない */ }
 }
 async function api(path: string, payload: Record<string, unknown> = {}, slot: Slot = "normal"): Promise<ApiData> {
   const cloudState = savedState(slot);

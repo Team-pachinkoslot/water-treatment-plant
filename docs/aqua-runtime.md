@@ -14,7 +14,18 @@ Function内はリクエストごとのメモリ内SQLiteです。前回Function�
 
 `npm run build`前に`.aqua/session-key.json`を生成し、`outputFileTracingIncludes`でサーバーFunctionへ同梱します。Gitと公開ディレクトリには追加しません。鍵はブラウザへ渡しません。
 
-任意の`AQUA_SESSION_KEY`（64桁16進文字列）があればそちらを優先します。固定した環境変数を設定すれば再デプロイをまたいで状態を復号できます。未指定ならデプロイ単位の鍵で、再デプロイ後は新しい演習を開始する方式です。`NEXT_PUBLIC_`変数には保存しません。
+任意の`AQUA_SESSION_KEY`（64桁16進文字列）があればそちらを優先します。固定した環境変数を設定すれば再デプロイをまたいで状態を復号できます。未指定ならデプロイ単位の鍵で、再デプロイ後は新しい演習を開始する方式です（Vercel・CIのビルドでは警告を表示します）。`NEXT_PUBLIC_`変数には保存しません。
+
+鍵を交換する場合は、旧鍵を`AQUA_SESSION_KEY_PREVIOUS`（カンマ区切りで複数可）へ移し、新しい鍵を`AQUA_SESSION_KEY`に設定します。旧鍵は復号だけに使い、次の保存時に新しい鍵で暗号化し直します。`AQUA_SESSION_KEY`を設定したビルドでも、同梱された`.aqua/session-key.json`の鍵を復号用に試します。
+
+## アップデート時の回答データの引き継ぎ
+
+アップデートで仕様が変わっても、保存済みの回答データ（FLAG提出・ターミナルの調査記録・レポート・防御の判断記録）を引き継ぎます。
+
+- localStorageのキー名（`aqua-cloud-exercise-v1` / `aqua-blue-practice-v1`）は変えません。変える場合は`aqua-practice.tsx`の`LEGACY_STORAGE_KEYS`へ旧キーを追加すると、初回読込時に移し替えます。
+- 読み込んだセッションは`migrateSession`（`simulator.server.ts`）で現在の仕様に揃えます。欠けた項目は既定値で補い、追加されたステージには新しいFLAGを発行し、削除されたステージは得点に数えません。知らない項目は消さずに残します。
+- 防御の判断IDの追加・削除は`storedJudgments`が吸収します（新しい判断は未回答、削除された判断は無視）。状態名が無くなった場合は最初の状態に戻しますが、判断の正解記録は残ります。
+- 保存形式を互換性のない形に変える場合は、`SESSION_SCHEMA_VERSION`を上げ、`migrateSession`に旧版からの変換を追加してください。
 
 ## HTTPS API
 

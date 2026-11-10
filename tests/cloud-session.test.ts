@@ -194,6 +194,23 @@ describe("Vercel-only exercise transport", () => {
       expect(result.status).toBe(503); expect((await result.json()).error.code).toBe("RUNTIME_NOT_CONFIGURED");
     }
   });
+  it("keeps saved answers across an update that rotates the key via AQUA_SESSION_KEY_PREVIOUS", async () => {
+    const browser = new Browser();
+    await browser.call("", { labId: "water-01" });
+    await solveRed(browser);
+    const before = (await browser.call("restore", {}, "current")).data.session;
+    const oldKey = process.env.AQUA_SESSION_KEY!;
+    vi.stubEnv("AQUA_SESSION_KEY", randomBytes(32).toString("hex"));
+    // 旧鍵を残さなければ読めない(従来どおり)
+    expect((await browser.call("restore", {}, "current")).response.status).toBe(409);
+    vi.stubEnv("AQUA_SESSION_KEY_PREVIOUS", oldKey);
+    const restored = await browser.call("restore", {}, "current");
+    expect(restored.response.status).toBe(200);
+    expect(restored.data.session).toMatchObject({ completedStages: before.completedStages, reports: before.reports, score: before.score });
+    // 読み込んだ時点で新しい鍵で暗号化し直されるので、旧鍵を外しても続けられる
+    vi.stubEnv("AQUA_SESSION_KEY_PREVIOUS", "");
+    expect((await browser.call("restore", {}, "current")).data.session.completedStages).toEqual(before.completedStages);
+  });
   it("rejects malformed and oversized bodies", async () => {
     expect((await handleSessionRequest(req({ value: "a".repeat(513_000) }))).status).toBe(413);
     expect((await handleSessionRequest(new Request("https://aqua.vercel.app/api/lab-sessions", { method: "POST", headers: { origin: "https://aqua.vercel.app", "content-type": "application/json" }, body: "{" }))).status).toBe(400);

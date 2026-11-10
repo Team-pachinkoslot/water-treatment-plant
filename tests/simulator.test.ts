@@ -225,3 +225,50 @@ describe("persistent browser simulator", () => {
     await expect(runtime.getSession(access)).rejects.toMatchObject({ code: "SESSION_EXPIRED" });
   });
 });
+
+describe("migrating saved answers across spec updates", () => {
+  /** 保存済みスナップショットの中身を書き換えて(旧版・新版の形式を再現して)読み込み直す */
+  async function reload(snapshot: string, edit: (s: Record<string, unknown>) => void, version?: number) {
+    const data = JSON.parse(snapshot);
+    const session = JSON.parse(data.sessions[0].data);
+    edit(session);
+    data.sessions[0].data = JSON.stringify(session);
+    if (version !== undefined) data.version = version;
+    return SimulatorScenarioRuntime.fromCloudSnapshot(JSON.stringify(data));
+  }
+  it("restores answers from an older format with missing fields", async () => {
+    const before = SimulatorScenarioRuntime.fromCloudSnapshot();
+    const access = await before.start("water-01");
+    await before.executeCommand(access, "S01", "nmap -p 22,8080 aqua.lab.test");
+    const flag = (await before.executeCommand(access, "S01", "curl http://aqua.lab.test:8080/training/discovery")).result.output.match(/AQUA\{[^}]+\}/)![0];
+    await before.submitFlag(access, "S01", flag, { ports: "22,8080" });
+    const snapshot = before.cloudSnapshot(); before.dispose();
+    const after = await reload(snapshot, s => {
+      delete s.schemaVersion; delete s.attempts; delete s.events; delete s.blue; delete s.stage5Verified;
+      delete (s.flags as Record<string, string>).S05;
+      (s.completedStages as string[]).push("S99_REMOVED", "S01");
+      s.blueState = "state_removed_in_update";
+      s.futureField = { kept: true };
+    });
+    try {
+      const session = await after.getSession(access);
+      expect(session).toMatchObject({ completedStages: ["S01"], nextStage: "S02", blueState: "anomaly_detected", score: { redFlags: 8 } });
+      expect(session.terminal.observations.length).toBeGreaterThan(0);
+      // 未知の項目は残し、欠けていた FLAG は新しく発行する
+      const stored = JSON.parse(JSON.parse(after.cloudSnapshot()).sessions[0].data);
+      expect(stored.futureField).toEqual({ kept: true });
+      expect(stored.flags.S01).toBe(flag);
+      expect(stored.flags.S05).toMatch(/^AQUA\{S05_[a-f0-9]{48}\}$/);
+    } finally { after.dispose(); }
+  });
+  it("accepts snapshots written by a newer version and keeps unknown judgments out of scoring", async () => {
+    const before = SimulatorScenarioRuntime.fromCloudSnapshot();
+    const access = await before.start("water-01");
+    const snapshot = before.cloudSnapshot(); before.dispose();
+    const after = await reload(snapshot, s => { s.schemaVersion = 9; s.blue = { judgments: { "9-9": { id: "9-9", solved: true, wrongAttempts: 0, hintLevelUsed: 0 } } }; }, 2);
+    try {
+      expect((await after.getSession(access)).score.blueActions).toBe(0);
+      expect(JSON.parse(JSON.parse(after.cloudSnapshot()).sessions[0].data).schemaVersion).toBe(9);
+    } finally { after.dispose(); }
+  });
+});

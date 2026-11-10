@@ -16,7 +16,7 @@
 
 ビルド前に`scripts/prepare-session-key.mjs`が秘密鍵を生成し、`.aqua/session-key.json`へ保存します。`.aqua/`はGit対象外です。Next.jsの`outputFileTracingIncludes`により鍵と固定教材をサーバーFunctionだけへ同梱します。秘密鍵・FLAG一覧・管理者回答はブラウザ用JSや公開HTMLへ含めません。
 
-既定の鍵はデプロイごとに変わります。再デプロイをまたいで演習を継続させたい場合のみ、Vercelの環境変数`AQUA_SESSION_KEY`へ暗号学的乱数の64桁16進文字列を登録します。`NEXT_PUBLIC_`は付けません。鍵を変更・削除すると、それまでの保存済み演習は再開できなくなります。
+既定の鍵はデプロイごとに変わります。アップデート（再デプロイ）後も受講者の回答データを引き継ぐには、Vercelの環境変数`AQUA_SESSION_KEY`へ暗号学的乱数の64桁16進文字列（例: `openssl rand -hex 32`）を登録してください。`NEXT_PUBLIC_`は付けません。鍵を交換するときは旧鍵を`AQUA_SESSION_KEY_PREVIOUS`へ移せば、保存済み演習をそのまま再開できます。旧鍵を残さずに変更・削除すると、それまでの保存済み演習は再開できなくなります。仕様変更時のデータ移行は[docs/aqua-runtime.md](docs/aqua-runtime.md)を参照してください。
 
 この作業環境にはVercel CLIの認証・対象プロジェクト設定がないため、今回の変更の公開反映は未実施です。
 

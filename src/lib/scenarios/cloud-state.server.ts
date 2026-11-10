@@ -9,35 +9,49 @@ export const CLOUD_STATE_LIMIT = 300_000;
 export type StateSlot = "normal" | "practice";
 const CHECKPOINT_COOKIE = (slot: StateSlot) => (slot === "practice" ? "aqua_practice_checkpoint" : "aqua_checkpoint");
 interface Checkpoint { digest: string; starts: number[]; expiresAt: number }
-function key(): Buffer {
-  const configured = process.env.AQUA_SESSION_KEY;
-  let value: unknown = configured;
-  if (!configured) {
-    try { value = JSON.parse(readFileSync(join(process.cwd(), ".aqua/session-key.json"), "utf8")).key; }
-    catch { throw new LabError("SESSION_KEY_NOT_CONFIGURED", "演習用の設定を読み込めません。再デプロイしてください。", 503); }
-  }
-  if (typeof value !== "string" || !/^[a-f0-9]{64}$/i.test(value)) throw new LabError("SESSION_KEY_NOT_CONFIGURED", "演習用の設定を確認してください。", 503);
-  return Buffer.from(value, "hex");
+const HEX_KEY = /^[a-f0-9]{64}$/i;
+/**
+ * 暗号鍵の一覧。先頭が暗号化に使う現在の鍵、残りは復号だけに使う旧鍵。
+ * アップデート(再デプロイ)で鍵を変えても保存済みの回答データを読めるよう、
+ * 鍵を変えるときは旧鍵を AQUA_SESSION_KEY_PREVIOUS(カンマ区切り)へ移す。
+ * 旧鍵で読めたデータは、次の保存時に現在の鍵で暗号化し直される。
+ */
+function keys(): Buffer[] {
+  const configured = process.env.AQUA_SESSION_KEY?.trim();
+  let fileKey: unknown;
+  try { fileKey = JSON.parse(readFileSync(join(process.cwd(), ".aqua/session-key.json"), "utf8")).key; } catch { fileKey = undefined; }
+  const current: unknown = configured || fileKey;
+  if (current === undefined) throw new LabError("SESSION_KEY_NOT_CONFIGURED", "演習用の設定を読み込めません。再デプロイしてください。", 503);
+  if (typeof current !== "string" || !HEX_KEY.test(current)) throw new LabError("SESSION_KEY_NOT_CONFIGURED", "演習用の設定を確認してください。", 503);
+  const previous = (process.env.AQUA_SESSION_KEY_PREVIOUS ?? "").split(",").map(v => v.trim()).filter(v => HEX_KEY.test(v));
+  // 環境変数の鍵へ切り替えた後も、ビルド時に生成した鍵で保存されたデータを読めるようにする。
+  if (configured && typeof fileKey === "string" && HEX_KEY.test(fileKey)) previous.push(fileKey);
+  return [...new Set([current, ...previous].map(v => v.toLowerCase()))].map(v => Buffer.from(v, "hex"));
 }
 function seal(value: string, purpose: string): string {
   const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", key(), iv);
+  const cipher = createCipheriv("aes-256-gcm", keys()[0], iv);
   cipher.setAAD(Buffer.from(purpose));
   const encrypted = Buffer.concat([cipher.update(deflateRawSync(Buffer.from(value))), cipher.final()]);
   return `v1.${Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString("base64url")}`;
 }
+function openWith(secret: Buffer, bytes: Buffer, purpose: string): string {
+  const decipher = createDecipheriv("aes-256-gcm", secret, bytes.subarray(0, 12));
+  decipher.setAAD(Buffer.from(purpose));
+  decipher.setAuthTag(bytes.subarray(12, 28));
+  const compressed = Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]);
+  return inflateRawSync(compressed, { maxOutputLength: 300_000 }).toString("utf8");
+}
 function open(value: string, purpose: string): string {
-  const secret = key();
-  try {
-    if (value.length > CLOUD_STATE_LIMIT || !/^v1\.[A-Za-z0-9_-]+$/.test(value)) throw new Error();
-    const bytes = Buffer.from(value.slice(3), "base64url");
-    if (bytes.length < 29) throw new Error();
-    const decipher = createDecipheriv("aes-256-gcm", secret, bytes.subarray(0, 12));
-    decipher.setAAD(Buffer.from(purpose));
-    decipher.setAuthTag(bytes.subarray(12, 28));
-    const compressed = Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]);
-    return inflateRawSync(compressed, { maxOutputLength: 300_000 }).toString("utf8");
-  } catch { throw new LabError("INVALID_CLOUD_STATE", "保存済みの演習を読み込めません。新しい演習を開始してください。", 409); }
+  const secrets = keys();
+  const invalid = () => new LabError("INVALID_CLOUD_STATE", "保存済みの演習を読み込めません。新しい演習を開始してください。", 409);
+  if (value.length > CLOUD_STATE_LIMIT || !/^v1\.[A-Za-z0-9_-]+$/.test(value)) throw invalid();
+  const bytes = Buffer.from(value.slice(3), "base64url");
+  if (bytes.length < 29) throw invalid();
+  for (const secret of secrets) {
+    try { return openWith(secret, bytes, purpose); } catch { /* 次の鍵で試す */ }
+  }
+  throw invalid();
 }
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 function cookie(request: Request, name: string) {

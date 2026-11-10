@@ -8,7 +8,7 @@ import { aquaScenario, type BlueActionCode, type BlueState } from "./aqua";
 import { LabError } from "./errors.server";
 import { readTelemetry } from "./telemetry.server";
 import {
-  BLUE_SCORING, JUDGMENT_IDS, canAdvance, createBlueScenario, isJudgmentId, judgmentPoints, stateIndex, stepCompleted, toTrendRows,
+  BLUE_SCORING, BLUE_STATES, JUDGMENT_IDS, canAdvance, createBlueScenario, isJudgmentId, judgmentPoints, stateIndex, stepCompleted, toTrendRows,
   type BlueMode, type BlueProgress, type BlueScenario, type HintLevel, type JudgmentId, type JudgmentRecord,
 } from "./blue-steps";
 import type { SessionAccess, SessionView, ReportFields, BlueCheckResult, BlueHint, BlueProgressView, MaterialView } from "./session-types";
@@ -16,6 +16,8 @@ import type { ScenarioRuntimeAdapter } from "./runtime.server";
 
 type StageId = (typeof aquaScenario.redStages)[number]["id"];
 interface StoredSession {
+  /** 保存形式の版。未設定は最初の版(1) */
+  schemaVersion?: number;
   id: string;
   ownerHash: string;
   expiresAt: string;
@@ -34,6 +36,48 @@ interface StoredSession {
   events: SessionView["events"];
 }
 type StoredJudgment = Omit<JudgmentRecord, "points">;
+/** ブラウザに保存するスナップショット全体の版 */
+const SNAPSHOT_VERSION = 1;
+/** StoredSession の版。保存形式を変えたら上げ、migrateSession に旧版からの移行を追加する */
+const SESSION_SCHEMA_VERSION = 1;
+const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+function migrateReport(v: unknown): ReportFields | null {
+  if (!isRecord(v)) return null;
+  const text = (x: unknown) => (typeof x === "string" ? x : "");
+  return { ...v, observations: text(v.observations), evidence: text(v.evidence), timeline: text(v.timeline), improvements: text(v.improvements), ...(v.impact !== undefined ? { impact: text(v.impact) } : {}) };
+}
+/**
+ * 保存済みセッションを現在の仕様に合わせる。アップデートで仕様が変わっても回答データ(FLAG提出・
+ * ターミナルの調査記録・レポート・防御の判断記録)を引き継ぐため、欠けた項目は既定値で補い、
+ * 知らない項目は消さずに残す(古い版へ戻した後に再度アップデートしても失われないようにする)。
+ */
+function migrateSession(raw: unknown): StoredSession {
+  if (!isRecord(raw) || typeof raw.id !== "string" || typeof raw.ownerHash !== "string" || typeof raw.expiresAt !== "string") fail("INVALID_CLOUD_STATE", "演習データの形式が正しくありません。", 409);
+  const s = raw as unknown as StoredSession & Record<string, unknown>;
+  // 追加されたステージには新しい FLAG を発行する。既存の FLAG は変えない。
+  const flags = isRecord(raw.flags) ? Object.fromEntries(Object.entries(raw.flags).filter(([, v]) => typeof v === "string")) as Record<string, string> : {};
+  for (const stage of aquaScenario.redStages) flags[stage.id] ??= `AQUA{${stage.id}_${randomBytes(24).toString("hex")}}`;
+  s.flags = flags;
+  // 削除されたステージは得点・完了判定に数えない(重複も除く)。
+  const known = new Set<string>(aquaScenario.redStages.map(x => x.id));
+  s.completedStages = [...new Set(strings(raw.completedStages).filter(id => known.has(id)))];
+  s.stage5Verified = raw.stage5Verified === true;
+  const t = raw.terminal;
+  s.terminal = isRecord(t) ? { ...initialTerminal(), ...t, host: t.host === "target" ? "target" : "kali", cwd: typeof t.cwd === "string" ? t.cwd : initialTerminal().cwd, observations: strings(t.observations), commandCount: Number.isInteger(t.commandCount) ? t.commandCount as number : 0 } : initialTerminal();
+  s.attempts = isRecord(raw.attempts) ? raw.attempts as StoredSession["attempts"] : {};
+  // 状態名が変わった・無くなった場合は最初の状態に戻す。判断の正解記録は残るので、同じ回答で再度進められる。
+  s.blueState = BLUE_STATES.includes(raw.blueState as BlueState) ? raw.blueState as BlueState : "anomaly_detected";
+  s.blueEvidenceAccepted = raw.blueEvidenceAccepted === true;
+  if (raw.mode !== undefined && raw.mode !== "practice") delete s.mode;
+  if (raw.blue !== undefined && !isRecord(raw.blue)) delete s.blue;
+  else if (s.blue?.judgments !== undefined && !isRecord(s.blue.judgments)) delete s.blue.judgments;
+  const reports = isRecord(raw.reports) ? raw.reports : {};
+  s.reports = { ...reports, red: migrateReport(reports.red), blue: migrateReport(reports.blue) };
+  s.events = Array.isArray(raw.events) ? raw.events.filter(e => isRecord(e) && typeof e.at === "string" && typeof e.type === "string") as StoredSession["events"] : [];
+  s.schemaVersion = Math.max(SESSION_SCHEMA_VERSION, Number.isInteger(raw.schemaVersion) ? raw.schemaVersion as number : 1);
+  return s;
+}
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 function fail(code: string, message: string, status = 400): never { throw new LabError(code, message, status); }
 function stageId(value: string): StageId {
@@ -151,7 +195,8 @@ export class SimulatorScenarioRuntime implements ScenarioRuntimeAdapter {
     const db = runtime.open();
     if (snapshot) {
       const data = JSON.parse(snapshot) as { version: number; sessions: { id: string; data: string }[] };
-      if (data.version !== 1 || !Array.isArray(data.sessions) || data.sessions.length !== 1) {
+      // 形式の版が違っても(アップデート前後どちらの版でも)読み込み、中身は migrateSession で現在の仕様に揃える。
+      if (!Number.isInteger(data.version) || data.version < 1 || !Array.isArray(data.sessions) || data.sessions.length !== 1 || data.sessions.some(row => typeof row?.id !== "string" || typeof row.data !== "string")) {
         runtime.dispose();
         fail("INVALID_CLOUD_STATE", "演習データの形式が正しくありません。", 409);
       }
@@ -162,11 +207,11 @@ export class SimulatorScenarioRuntime implements ScenarioRuntimeAdapter {
   }
   cloudSnapshot() {
     if (!this.memoryDb) fail("INVALID_CLOUD_STATE", "演習データがありません。", 409);
-    return JSON.stringify({ version: 1, sessions: this.memoryDb.prepare("SELECT id, data FROM sessions").all() });
+    return JSON.stringify({ version: SNAPSHOT_VERSION, sessions: this.memoryDb.prepare("SELECT id, data FROM sessions").all() });
   }
   private insert(db: DatabaseSync, mode: BlueMode = "normal") {
     const token = randomBytes(32).toString("hex");
-    const s: StoredSession = { id: randomUUID(), ownerHash: hash(token), expiresAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(), flags: Object.fromEntries(aquaScenario.redStages.map(stage => [stage.id, `AQUA{${stage.id}_${randomBytes(24).toString("hex")}}`])), completedStages: [], stage5Verified: false, terminal: initialTerminal(), attempts: {}, blueState: "anomaly_detected", blueEvidenceAccepted: false, reports: { red: null, blue: null }, events: [], ...(mode === "practice" ? { mode } : {}) };
+    const s: StoredSession = { schemaVersion: SESSION_SCHEMA_VERSION, id: randomUUID(), ownerHash: hash(token), expiresAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(), flags: Object.fromEntries(aquaScenario.redStages.map(stage => [stage.id, `AQUA{${stage.id}_${randomBytes(24).toString("hex")}}`])), completedStages: [], stage5Verified: false, terminal: initialTerminal(), attempts: {}, blueState: "anomaly_detected", blueEvidenceAccepted: false, reports: { red: null, blue: null }, events: [], ...(mode === "practice" ? { mode } : {}) };
     record(s, mode === "practice" ? "PRACTICE_SESSION_STARTED" : "SESSION_STARTED");
     db.prepare("INSERT INTO sessions (id, data) VALUES (?, ?)").run(s.id, JSON.stringify(s));
     return { sessionId: s.id, token, session: view(s) };
@@ -178,7 +223,7 @@ export class SimulatorScenarioRuntime implements ScenarioRuntimeAdapter {
       db.exec("BEGIN IMMEDIATE");
       const row = db.prepare("SELECT data FROM sessions WHERE id = ?").get(access.sessionId) as { data: string } | undefined;
       if (!row || !/^[a-f0-9]{64}$/.test(access.token)) fail("SESSION_NOT_FOUND", "セッションが見つかりません。", 404);
-      s = JSON.parse(row.data) as StoredSession;
+      s = migrateSession(JSON.parse(row.data));
       if (!timingSafeEqual(Buffer.from(s.ownerHash, "hex"), Buffer.from(hash(access.token), "hex"))) fail("SESSION_NOT_FOUND", "セッションが見つかりません。", 404);
       if (Date.parse(s.expiresAt) <= Date.now()) fail("SESSION_EXPIRED", "セッションの有効期限が切れました。新しく開始してください。", 410);
       const result = operation(s, db);
