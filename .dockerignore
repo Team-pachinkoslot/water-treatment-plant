@@ -1,0 +1,10 @@
+.git
+.next
+.aqua
+node_modules
+coverage
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+npm-debug.log*

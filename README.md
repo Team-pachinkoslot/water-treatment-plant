@@ -36,6 +36,18 @@ npm run build
 npm run start
 ```
 
+## Dockerで起動
+
+Docker Desktop（Docker EngineとCompose）を用意し、リポジトリのルートで実行します。
+
+```sh
+docker compose up --build
+```
+
+ブラウザで [http://localhost:3000](http://localhost:3000) を開きます。停止は `Ctrl+C`、バックグラウンド起動後の停止は `docker compose down` です。演習は既定で有効です。
+
+暗号鍵はイメージのビルド時に生成されるため、同じイメージの再起動では演習を再開できますが、イメージを再ビルドすると鍵が変わり、既存の演習を再開できなくなります。再ビルド後も継続する場合は、`.env` に `AQUA_SESSION_KEY` を設定してください（例: `openssl rand -hex 32` で生成した64桁の値）。鍵は公開せず、`NEXT_PUBLIC_` も付けないでください。
+
 ## 実装した演習
 
 1. 24時間有効のセッションを開始。
