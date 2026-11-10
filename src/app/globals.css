@@ -3219,9 +3219,15 @@ main {
 .legend-band { color: var(--muted) !important; }
 /* 用語辞典 */
 .glossary-term { position: relative; display: inline-block; }
-.glossary-trigger { color: inherit; border: 0; border-bottom: 1px dotted var(--cyan); padding: 0; font: inherit; line-height: inherit; }
+.glossary-trigger { color: inherit; background: transparent; border: 0; border-bottom: 1px dotted var(--cyan); padding: 0; font: inherit; line-height: inherit; cursor: help; }
 .glossary-trigger:hover, .glossary-trigger:focus-visible { color: var(--cyan); }
-.glossary-tooltip { position: absolute; left: 0; top: calc(100% + 6px); z-index: 30; width: max-content; max-width: 260px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 12px; line-height: 1.7; color: var(--text); box-shadow: 0 8px 24px #0009; }
+.glossary-tooltip { position: fixed; z-index: 100; width: max-content; max-width: min(260px, calc(100vw - 16px)); background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 12px; line-height: 1.7; color: var(--text); box-shadow: 0 8px 24px #0009; pointer-events: none; }
+.term-help { color: var(--muted); font-size: 12px; line-height: 1.7; }
+.judgment-intro { color: var(--text); font-size: 14px; }
+.question-guide { display: grid; gap: 8px; margin: 14px 0; padding: 14px 16px; border-left: 3px solid var(--cyan); border-radius: 4px; background: rgba(130, 190, 198, .08); }
+.question-guide p { display: grid; grid-template-columns: 6em minmax(0, 1fr); gap: 8px; margin: 0; font-size: 13px; line-height: 1.7; }
+.question-guide strong { color: var(--cyan); }
+@media (max-width: 600px) { .question-guide p { grid-template-columns: 1fr; gap: 2px; } }
 @media (max-width: 700px) { .glossary-tooltip { max-width: 220px; } .hmi-panel { padding: 20px 16px; } }
 
 /* ===== Blue Team: 塩素消毒シナリオ ===== */

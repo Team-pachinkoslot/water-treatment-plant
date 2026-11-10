@@ -59,11 +59,11 @@ export function HmiOverview({ blueState, solved = [], showLog = true }: { blueSt
       <h3>いまの監視状態</h3>
       <dl className="hmi-status-grid">
         <div>
-          <dt>残留塩素 下限アラーム</dt>
+          <dt><Term name="残留塩素" /> 下限アラーム</dt>
           <dd>{blueState === "recovered" ? <><CheckCircle2 size={14} /> 正常</> : <>未発生(表示値 ≥ {INCIDENT.lowAlarmLimit.toFixed(2)})</>}</dd>
         </div>
         <div>
-          <dt>塩素注入ポンプ({INCIDENT.changedPlc})</dt>
+          <dt>塩素注入ポンプ(<Term name="PLC">{INCIDENT.changedPlc}</Term>)</dt>
           <dd className={manual ? "alarm-low" : ""}>注入ポンプ: {d.mode} / 運転 / {rpm} min⁻¹</dd>
         </div>
         <div>
@@ -71,7 +71,7 @@ export function HmiOverview({ blueState, solved = [], showLog = true }: { blueSt
           <dd className={d.spRestored ? "" : "alarm-low"}>{d.sp.toFixed(2)} {INCIDENT.unit}{d.spRestored ? "(ベースライン)" : ""}{manual ? "(手動の固定注入)" : ""}</dd>
         </div>
         <div>
-          <dt>表示用データ入力</dt>
+          <dt><Term name="入力経路">表示用データ入力</Term></dt>
           <dd className={d.feed === "connected" || d.feed === "isolated" ? "alarm-low" : ""}>{feedLabel[d.feed]}</dd>
         </div>
         <div>
@@ -96,7 +96,7 @@ export function PlcTagTable() {
     <div className="aqua-table-scroll" tabIndex={0} role="region" aria-label="PLCタグ表">
       <table className="plc-tag-table">
         <caption><Term name="PLC">PLC</Term>一覧(<Term name="PV">PV</Term>・<Term name="SP">SP</Term>・<Term name="ベースライン">ベースライン</Term>)</caption>
-        <thead><tr><th>PLC</th><th>区域</th><th>タグ名</th><th>PV</th><th>SP</th><th>ベースライン</th><th>最終変更者</th><th>最終変更時刻</th><th>変更管理票</th><th>アラーム</th></tr></thead>
+        <thead><tr><th><Term name="PLC" /></th><th>区域</th><th><Term name="タグ">タグ名</Term></th><th><Term name="PV" /></th><th><Term name="SP" /></th><th><Term name="ベースライン" /></th><th>最終変更者</th><th>最終変更時刻</th><th><Term name="変更管理票" /></th><th>アラーム</th></tr></thead>
         <tbody>
           {plcTags.map(t => (
             <tr key={t.plc}>
@@ -164,7 +164,7 @@ export function ProcessLegend() {
       {processUnits.map((u, i) => (
         <span key={u.id}>
           {i > 0 && "→ "}
-          {u.id === "pac" ? <Term name="注入率">{u.label}</Term> : u.id === "cl2" ? <><Term name="残留塩素">{u.label}</Term>(残留塩素監視)</> : u.label}
+          {u.id === "pac" ? <><Term name="PAC" />注入</> : u.id === "well" ? <Term name="着水井" /> : u.id === "filter" ? <Term name="急速ろ過" /> : u.id === "cl2" ? <>塩素注入(<Term name="残留塩素" />監視)</> : u.label}
         </span>
       ))}
     </p>

@@ -17,6 +17,24 @@ import { Term } from "./glossary";
 export type BlueOperation = "blue-check" | "blue-hints" | "blue-actions" | "blue-observe";
 export type BlueCall = (operation: BlueOperation, payload: Record<string, unknown>) => Promise<{ data?: Record<string, unknown>; error?: string }>;
 const hintLabels = ["考え方", "書き方", "実行例"] as const;
+const questionGuide: Record<JudgmentId, { source: string; question: string }> = {
+  "1-1": { source: "残留塩素のグラフ・データ表の「差」", question: "差が基準を超えた状態が連続する区間は、何時に始まりましたか？" },
+  "1-2": { source: "データ表の「差」と 1-1 の結果", question: "基準を超えた回が必要な回数だけ連続したのは、何時ですか？" },
+  "1-3": { source: "データ表の「差」とその次の時刻", question: "連続していない超過を異常の確定から除いた理由を、次の回の変化とあわせて書いてください。" },
+  "2-1": { source: "資料1 PLC一覧・資料2 設定差分", question: "承認済みの値から外れた設定はどれですか？ PLCとタグを選んでください。" },
+  "2-2": { source: "監視状態・設定差分・操作ログ", question: "記録と矛盾しない原因として考えられるものを、すべて選んでください。" },
+  "2-3": { source: "資料3 操作ログ・残留塩素のデータ表", question: "原因を裏付ける記録や時刻の前後関係を、すべて選んでください。" },
+  "2-4": { source: "監視状態とこれまでの調査結果", question: "水質と供給を守りながら切り離すべき対象を1つ選んでください。" },
+  "3-1": { source: "中央監視室の状態", question: "水質を守りながら安全を確保するために必要な対応を、すべて選んでください。" },
+  "4-1": { source: "資料1 ベースライン台帳", question: "対象の設定を戻す承認済みの値を、数値で入力してください。" },
+  "4-2": { source: "資料2 操作ログ", question: "対象の設定を変更したアカウントを選んでください。" },
+  "4-3": { source: "4-1・4-2 の結果", question: "前の2つの作業を終えたら、ボタンで復旧データに切り替えてください。" },
+  "4-4": { source: "この設問内で取得する復旧データ", question: "記録を取得し、表示値と推定値の差が連続して基準以内かを判断してください。" },
+  "4-5": { source: "この設問内の現場手分析と復旧データ", question: "手分析の値と2つの値の差を比べ、整合しているか選んでください。" },
+  "5-1": { source: "安全モードで変更した運転状態", question: "正常性の確認後に戻す運転モードを選んでください。" },
+  "5-2": { source: "5-1 の運転モード", question: "運転モードを戻した後、ボタンで入力の隔離を解除してください。" },
+  "5-3": { source: "今回の異常と調査結果", question: "再発に気付くため、復旧後も続ける監視をすべて選んでください。" },
+};
 const str = (v: unknown) => (typeof v === "string" ? v : typeof v === "number" ? String(v) : "");
 const listOf = (v: unknown) => (Array.isArray(v) ? (v as string[]) : []);
 const toggle = (values: unknown, id: string) => { const l = listOf(values); return l.includes(id) ? l.filter(v => v !== id) : [...l, id]; };
@@ -99,6 +117,7 @@ export function BlueTeam({ session, enabled, busy, samples, recoverySamples, cal
     <div className="blue-team">
       <IncidentMemo />
       <TrainingNotice />
+      <p className="term-help">点線のある用語は、カーソルを合わせるか、クリック・タップすると説明が表示されます。</p>
       <div className="blue-common">
         <section className="panel blue-status" aria-label="現在の状態">
           <div><small>現在の状態</small><strong className="mono">{session.blueState}</strong></div>
@@ -143,6 +162,7 @@ export function BlueTeam({ session, enabled, busy, samples, recoverySamples, cal
         <StepMaterials step={step} session={session} samples={samples} />
 
         <h3 className="blue-section-title">2. 判断・記入</h3>
+        <p className="judgment-intro">各問題で「見る資料」と「答えること」を確認し、回答を選択または入力してからボタンを押してください。</p>
         <p className="blue-help">各判断の「判定する」で正誤を確かめます。正解した判断は固定されます。誤答1回ごとに−{BLUE_SCORING.mistakePenalty}点(下限は配点の50%)、ヒントの「実行例」を見た判断は配点の50%が上限です。</p>
         <div className="judgment-list">
           {step.judgments.map(id => {
@@ -198,6 +218,7 @@ function JudgmentCard({ spec, rec, progress, enabled, busy, isCurrent, draft, se
         <h4 id={`${base}-title`}><span className="judgment-id">{spec.id}</span>{spec.title}</h4>
         <span className={`judgment-status ${rec.solved ? "is-solved" : ""}`}>{status}</span>
       </div>
+      <div className="question-guide"><p><strong>見る資料</strong> {questionGuide[spec.id].source}</p><p><strong>答えること</strong> {questionGuide[spec.id].question}</p></div>
       {extra}
       <JudgmentField spec={spec} id={base} value={value} locked={locked} setDraft={setDraft} />
       {waiting && <p className="blue-help"><Lock size={12} aria-hidden="true" /> {spec.blockedMessage}</p>}
@@ -234,7 +255,7 @@ function JudgmentField({ spec, id, value, locked, setDraft }: { spec: JudgmentSp
   const input = spec.input;
   switch (input.kind) {
     case "select":
-      return <label htmlFor={`${id}-input`}>選択<select id={`${id}-input`} value={str(value)} disabled={locked} onChange={e => setDraft(e.target.value)}><option value="">選択してください</option>{input.options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}</select></label>;
+      return <label htmlFor={`${id}-input`}>回答を1つ選択<select id={`${id}-input`} value={str(value)} disabled={locked} onChange={e => setDraft(e.target.value)}><option value="">選択してください</option>{input.options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}</select></label>;
     case "radio":
     case "multi":
       return (
