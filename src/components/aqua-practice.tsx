@@ -90,8 +90,8 @@ function ReportForm({ track, saved, enabled, busy, onSave }: { track: "red" | "b
     <h2>{track === "red" ? "調査レポート / Red Team" : "防御レポート / Blue Team"}</h2>
     <p>{locked ? "✓ 提出済みです。提出後は変更できません(演習をリセットすると再挑戦できます)。" : saved ? "提出済みです。内容を更新して再提出できます。" : "各項目10文字以上で記録してください。保存は提出ボタンを押した時点で行います。"}</p>
     <p>演習の採点は入力項目の充足と検証済みの操作を評価します。文章の妥当性・証拠の品質は講師の確認が必要です。</p>
+    {!enabled && <p className="judgment-lock-reason" role="note">🔒 {track === "red" ? "5つのFLAGを提出すると入力できます。項目は先に確認できます。" : "STEP 05 で模擬監視を復旧すると入力できます。項目は先に確認できます。"}</p>}
     <fieldset disabled={!enabled || busy || locked}>{reportKeys(track).map(key => <label key={key} htmlFor={`${track}-${key}`}>{reportLabels(track)[key]}{track === "blue" && <small className="report-guide">{reportGuides[key]}</small>}<textarea id={`${track}-${key}`} value={report[key] ?? ""} minLength={10} maxLength={4000} required rows={3} onChange={e => setReport({ ...report, [key]: e.target.value })} /><small className="blue-help">{(report[key] ?? "").trim().length} 文字{(report[key] ?? "").trim().length < 10 ? "(10文字以上)" : " ✓"}</small></label>)}{!locked && <button className="button primary" disabled={!enabled || busy} type="submit">{track === "red" ? "調査" : "防御"}レポートを提出</button>}{!locked && enabled && short.length > 0 && <p className="blue-help">10文字に満たない項目: {short.map(k => reportLabels(track)[k]).join("、")}</p>}</fieldset>
-    {!enabled && <p>{track === "red" ? "5つのFLAG提出後に利用できます。" : "模擬復旧後に利用できます。"}</p>}
   </form>;
 }
 export function AquaPractice({ enabled, autoStart = false, initialTrack = "red", initialPractice = false, samples, recoverySamples }: { enabled: boolean; autoStart?: boolean; initialTrack?: "red" | "blue" | "results"; initialPractice?: boolean; samples: TelemetrySample[]; recoverySamples: TelemetrySample[] }) {
@@ -249,8 +249,7 @@ export function AquaPractice({ enabled, autoStart = false, initialTrack = "red",
       </>}
       {track === "blue" && <>
         {!practice && <div className="practice-mode-entry"><p>Red Team を終えていなくても、Blue Team の判断・判定だけを練習できます(講師の確認・デモ・復習向け)。</p><button type="button" className="button secondary" disabled={busy} onClick={startPractice}>Blueだけ練習する</button></div>}
-        {!blueEnabled && <div className="notice">5つのFLAGとRed Team調査レポートの提出後に操作できます。資料は先に閲覧できます。</div>}
-        <BlueTeam key={session.id} session={session} enabled={blueEnabled} busy={busy} samples={samples} recoverySamples={recoverySamples} call={blueCall} />
+        <BlueTeam key={session.id} session={session} enabled={blueEnabled} busy={busy} samples={samples} recoverySamples={recoverySamples} call={blueCall} onGoRed={practice ? undefined : () => { setTrack("red"); setMessage(""); setError(""); window.scrollTo({ top: 0 }); }} />
         <ReportForm key={session.id + "-blue"} track="blue" saved={session.reports.blue} enabled={session.blueState === "recovered"} busy={busy} onSave={report => saveReport("blue", report)} />
         {(session.complete || session.reports.blue) && <button className="button primary practice-next" onClick={() => setTrack("results")}>結果を見る →</button>}
       </>}
