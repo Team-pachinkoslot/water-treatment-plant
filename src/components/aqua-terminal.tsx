@@ -1,11 +1,12 @@
 "use client";
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { ArrowUp, Lightbulb, Terminal, ChevronRight, CheckCircle2 } from "lucide-react";
 import { AttackVisualization } from "./attack-visualization";
 import { initialTerminal, lessonProgress, terminalLessons, type CommandHint, type TerminalResult, type TerminalState } from "@/lib/scenarios/terminal-lessons";
 
 interface Entry { command: string; output: string; error: boolean }
-export function AquaTerminal({ stageId, terminal = initialTerminal(), busy, execute, hint }: { stageId: string; terminal?: TerminalState; busy: boolean; execute: (command: string) => Promise<TerminalResult>; hint: (index: number) => Promise<CommandHint> }) {
+/** 画面の並べ方: 図解(全幅・折りたたみ) / 左カラム(aside: ミッション一覧・確認できたこと・ヒント) / 右カラム(header・ターミナル・below) */
+export function AquaTerminal({ stageId, terminal = initialTerminal(), busy, execute, hint, aside, header, below, figureOpen = true, onFigureToggle }: { stageId: string; terminal?: TerminalState; busy: boolean; execute: (command: string) => Promise<TerminalResult>; hint: (index: number) => Promise<CommandHint>; aside?: ReactNode; header?: ReactNode; below?: ReactNode; figureOpen?: boolean; onFigureToggle?: (open: boolean) => void }) {
   const [command, setCommand] = useState("");
   const [entries, setEntries] = useState<Entry[]>([]);
   const [commands, setCommands] = useState<string[]>([]);
@@ -40,7 +41,7 @@ export function AquaTerminal({ stageId, terminal = initialTerminal(), busy, exec
       setEntries(previous => [...previous, { command: value, output: error instanceof Error ? error.message : "実行結果を取得できませんでした。", error: true }].slice(-30));
     } finally {
       clearTimeout(processing); setPending(false);
-      requestAnimationFrame(() => { input.current?.focus(); log.current?.scrollTo({ top: log.current.scrollHeight, behavior: "smooth" }); });
+      requestAnimationFrame(() => { input.current?.focus(); log.current?.scrollTo({ top: log.current.scrollHeight, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); });
     }
   }
   async function generate(level: number) {
@@ -51,8 +52,25 @@ export function AquaTerminal({ stageId, terminal = initialTerminal(), busy, exec
     finally { setHintLoading(false); }
   }
   return <div className="terminal-workspace">
-    <div className="terminal-primary">
-      <section className="training-terminal" aria-label="ブラウザ内の模擬ターミナル">
+    <details className="panel lab-figure" open={figureOpen} onToggle={e => onFigureToggle?.(e.currentTarget.open)}>
+      <summary>現在の操作の図解</summary>
+      <AttackVisualization scene={result?.scene ?? (pending ? lesson.scene : "idle")} phase={phase} title={result?.title} explanation={result?.explanation} sequence={sequence}/>
+    </details>
+    <div className="lab-columns is-red">
+      <aside className="lab-aside" aria-label="調査の進み具合とヒント">
+        <div className="lab-aside-missions">{aside}</div>
+        <div className="lab-aside-status"><section className="panel terminal-observations"><div className="eyebrow">INVESTIGATION CHECKPOINTS</div><h3>確認できたこと <span>{progress.done} / {progress.total}</span></h3><ul>{lesson.steps.map(step => <li key={step.observation} className={terminal.observations.includes(step.observation) ? "is-observed" : ""}><CheckCircle2 size={16}/><span>{step.concept}</span></li>)}</ul><p>コマンドの結果はターミナルに表示されます。FLAGと根拠を読み取り、下のフォームへ提出してください。</p></section></div>
+        <div className="lab-aside-hints"><section className="command-hint-panel panel" id="red-hints" aria-label="進捗に応じたコマンドヒント">
+        <div className="command-hint-heading"><div><Lightbulb size={18}/><h3>何を入力すればいい？</h3></div><span>次の一手を案内</span></div>
+        <p>いまの調査状況と入力エラーに合わせて、段階的にヒントを作ります。</p>
+        <div className="hint-levels">{["考え方", "書き方", "実行例"].map((label,index) => <button key={label} disabled={disabled} aria-pressed={generated?.level === index} onClick={() => void generate(index)}><span>0{index+1}</span>{label}</button>)}</div>
+        {!generated ? <button className="button secondary" disabled={disabled} onClick={() => void generate(0)}>{hintLoading ? "ヒントを生成中…" : "ヒントを生成"}</button> : <div className="generated-hint"><small>{generated.step}</small><p>{generated.hint}</p>{generated.command && <div className="command-example"><code>{generated.command}</code><button disabled={disabled} onClick={() => { setCommand(generated.command!); input.current?.focus(); }}>入力欄に入れる</button></div>}<p className="hint-explanation">{generated.explanation}</p>{hintLevel < 2 && <button className="text-link" disabled={disabled} onClick={() => void generate(hintLevel + 1)}>もう少し具体的なヒント →</button>}<button className="text-link hint-refresh" disabled={disabled} onClick={() => void generate(hintLevel)}>現在の進捗で作り直す</button></div>}
+      </section></div>
+      </aside>
+      <div className="lab-work">
+        <section className="panel terminal-panel" aria-label="作業パネル">
+          {header}
+          <section className="training-terminal" aria-label="ブラウザ内の模擬ターミナル">
         <header className="terminal-titlebar"><span className="terminal-window-dots"><i/><i/><i/></span><span><Terminal size={14}/> AQUA TERMINAL</span><strong>SIMULATED</strong></header>
         <div className="terminal-context"><span>{terminal.host === "target" ? "aquareader@aqua.lab.test" : "learner@ics-kali"}</span><span>{terminal.cwd}</span></div>
         <div className="terminal-log" ref={log} role="log" aria-label="コマンド実行履歴" aria-live="polite" aria-relevant="additions text">
@@ -66,16 +84,9 @@ export function AquaTerminal({ stageId, terminal = initialTerminal(), busy, exec
         }}/><button type="submit" disabled={disabled || !command.trim()} aria-label="コマンドを実行"><ArrowUp size={17}/><span>実行</span></button></form>
         <footer className="terminal-footer"><span>Enterで実行 / ↑↓で入力履歴</span><button type="button" disabled={disabled} onClick={() => { setCommand("help"); input.current?.focus(); }}>helpを入力</button></footer>
       </section>
-      <section className="command-hint-panel panel" aria-label="進捗に応じたコマンドヒント">
-        <div className="command-hint-heading"><div><Lightbulb size={18}/><h3>何を入力すればいい？</h3></div><span>次の一手を案内</span></div>
-        <p>いまの調査状況と入力エラーに合わせて、段階的にヒントを作ります。</p>
-        <div className="hint-levels">{["考え方", "書き方", "実行例"].map((label,index) => <button key={label} disabled={disabled} aria-pressed={generated?.level === index} onClick={() => void generate(index)}><span>0{index+1}</span>{label}</button>)}</div>
-        {!generated ? <button className="button secondary" disabled={disabled} onClick={() => void generate(0)}>{hintLoading ? "ヒントを生成中…" : "ヒントを生成"}</button> : <div className="generated-hint"><small>{generated.step}</small><p>{generated.hint}</p>{generated.command && <div className="command-example"><code>{generated.command}</code><button disabled={disabled} onClick={() => { setCommand(generated.command!); input.current?.focus(); }}>入力欄に入れる</button></div>}<p className="hint-explanation">{generated.explanation}</p>{hintLevel < 2 && <button className="text-link" disabled={disabled} onClick={() => void generate(hintLevel + 1)}>もう少し具体的なヒント →</button>}<button className="text-link hint-refresh" disabled={disabled} onClick={() => void generate(hintLevel)}>現在の進捗で作り直す</button></div>}
-      </section>
-    </div>
-    <div className="terminal-visual-column">
-      <AttackVisualization scene={result?.scene ?? (pending ? lesson.scene : "idle")} phase={phase} title={result?.title} explanation={result?.explanation} sequence={sequence}/>
-      <section className="panel terminal-observations"><div className="eyebrow">INVESTIGATION CHECKPOINTS</div><h3>確認できたこと <span>{progress.done} / {progress.total}</span></h3><ul>{lesson.steps.map(step => <li key={step.observation} className={terminal.observations.includes(step.observation) ? "is-observed" : ""}><CheckCircle2 size={16}/><span>{step.concept}</span></li>)}</ul><p>コマンドの結果はターミナルに表示されます。FLAGと根拠を読み取り、下のフォームへ提出してください。</p></section>
+        </section>
+        {below}
+      </div>
     </div>
   </div>;
 }

@@ -1,10 +1,11 @@
 "use client";
 import { useEffect, useState, type CSSProperties } from "react";
 import Link from "next/link";
+import { CheckCircle2, Info, Lock, Play } from "lucide-react";
 import { aquaScenario } from "@/lib/scenarios/aqua";
 import { AquaTerminal } from "./aqua-terminal";
 import { BlueTeam, formatElapsed, type BlueCall } from "./blue-team";
-import { initialTerminal, type CommandHint, type TerminalResult } from "@/lib/scenarios/terminal-lessons";
+import { initialTerminal, lessonProgress, type CommandHint, type TerminalResult } from "@/lib/scenarios/terminal-lessons";
 import type { TelemetrySample } from "@/lib/scenarios/telemetry.server";
 import { INCIDENT, reportReviewPoints } from "@/lib/scenarios/incident";
 import { BLUE_SCORING, createBlueScenario } from "@/lib/scenarios/blue-steps";
@@ -111,6 +112,8 @@ export function AquaPractice({ enabled, autoStart = false, initialTrack = "red",
   const [sourceIp, setSourceIp] = useState("");
   const [firstTime, setFirstTime] = useState("");
   const [celebration, setCelebration] = useState<{ id: number; title: string; count: number } | null>(null);
+  // 図解の開閉は画面内の状態としてだけ持つ(進捗の保存データには含めない)
+  const [figureOpen, setFigureOpen] = useState(true);
 
   useEffect(() => {
     if (!celebration) return;
@@ -205,8 +208,14 @@ export function AquaPractice({ enabled, autoStart = false, initialTrack = "red",
   return <div className="page aqua-page practice-page">
     {practice && <div className="practice-mode-bar" role="status"><span className="practice-mode-badge">練習モード</span><span>Blueだけの練習です。得点は「練習」として別枠に記録し、合計(100点)と完了判定には加算しません。</span><button type="button" className="text-link" disabled={busy} onClick={endPractice}>練習モードを終了</button></div>}
     <Link className="back-link" href="/labs/water-treatment">← シナリオ概要に戻る</Link>
-    <header className="aqua-header"><div className="eyebrow">PROJECT AQUA / BROWSER SIMULATOR <span className="aqua-badge">{practice ? "練習モード" : "ブラウザ演習"}</span></div><h1>{practice ? "Blue Team を練習する。" : "調査から復旧まで、ブラウザで演習する。"}</h1><p>七王子市中央浄水場（架空） / {practice ? `Blue Team ${aquaScenario.durationMinutes.blue}分(練習)` : "Red Team 30分 + Blue Team 20分"}</p></header>
-    <div className="notice aqua-notice"><div><strong>実VM・設備への接続はありません</strong><br />Linuxに接続せず、教材の閲覧と模擬演習をブラウザで行います。進捗は暗号化してこのブラウザに保存されます。入力したコマンドは演習内で模擬実行し、実シェル・外部ホストへの接続は行いません。教材のイベント日時は2026-11-02の固定された架空データ（UTC）です。</div></div>
+    <div className="practice-top">
+      <header className="aqua-header"><div className="eyebrow">PROJECT AQUA / BROWSER SIMULATOR <span className="aqua-badge">{practice ? "練習モード" : "ブラウザ演習"}</span></div><h1>{practice ? "Blue Team を練習する。" : "調査から復旧まで、ブラウザで演習する。"}</h1><p>七王子市中央浄水場（架空） / {practice ? `Blue Team ${aquaScenario.durationMinutes.blue}分(練習)` : "Red Team 30分 + Blue Team 20分"}</p></header>
+      {session && <section className="panel practice-progress"><div><strong>{practice ? "練習中" : session.complete ? "演習完了" : "演習中"}</strong><p>{practice ? `Blue対応 ${session.score.blueActions} / ${BLUE_SCORING.actionsTotal}点(練習) · 模擬状態：${session.blueState}` : `FLAG ${session.completedStages.length} / 5 · ${session.score.total} / 100点 · 模擬状態：${session.blueState}`}</p><small>有効期限：{new Date(session.expiresAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} JST</small></div><button className="button secondary practice-reset" disabled={busy} onClick={() => { if (window.confirm(practice ? "練習を最初からやり直します。よろしいですか?" : "演習をリセットします。進捗・得点・提出したレポートは初期状態に戻ります。よろしいですか?")) void run(() => call(`${path}/reset`, {}), practice ? "練習をリセットしました。" : "新しい演習にリセットしました。", clearExercise); }}>{practice ? "練習をリセット" : "演習をリセット"}</button></section>}
+    </div>
+    <details className="notice-strip">
+      <summary><Info size={16} aria-hidden="true" /><strong>実VM・設備への接続はありません</strong><span className="notice-strip-more">詳しく</span></summary>
+      <p>Linuxに接続せず、教材の閲覧と模擬演習をブラウザで行います。進捗は暗号化してこのブラウザに保存されます。入力したコマンドは演習内で模擬実行し、実シェル・外部ホストへの接続は行いません。教材のイベント日時は2026-11-02の固定された架空データ（UTC）です。</p>
+    </details>
     {!enabled && <section className="panel aqua-report"><h2>演習は現在停止しています</h2><p>現在は教材プレビューを閲覧できます。演習が公開されるまでお待ちください。</p><button className="button disabled" disabled>演習を開始（停止中）</button></section>}
     {enabled && loading && <p role="status">保存済みの進捗を確認しています…</p>}
     {celebration && <div key={celebration.id} className="flag-celebration" onClick={() => setCelebration(null)} aria-hidden="true">
@@ -223,17 +232,27 @@ export function AquaPractice({ enabled, autoStart = false, initialTrack = "red",
     <div className="practice-feedback" aria-live="polite">{message && <p role="status">{message}</p>}{error && <p role="alert" className="practice-error">{error}</p>}</div>
     {enabled && !loading && !session && <section className="panel aqua-report"><h2>{practice ? "Blue Team の練習" : "新しいブラウザ演習"}</h2><p>{practice ? "練習用の演習を開始します。通常の演習とは別に保存されます。" : "このブラウザ専用の演習を開始します。有効期限は24時間です。同じブラウザで再開できます。ブラウザの保存データを削除すると進捗は失われます。"}</p><button className="button primary" disabled={busy} onClick={() => void run(() => call("", { labId: "water-01" }), "演習を開始しました。")}>演習を開始</button></section>}
     {session && <>
-      <section className="panel practice-progress"><div><strong>{practice ? "練習中" : session.complete ? "演習完了" : "演習中"}</strong><p>{practice ? `Blue対応 ${session.score.blueActions} / ${BLUE_SCORING.actionsTotal}点(練習) · 模擬状態：${session.blueState}` : `FLAG ${session.completedStages.length} / 5 · ${session.score.total} / 100点 · 模擬状態：${session.blueState}`}</p><small>有効期限：{new Date(session.expiresAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} JST</small></div><button className="text-link" disabled={busy} onClick={() => { if (window.confirm(practice ? "練習を最初からやり直します。よろしいですか?" : "演習をリセットします。進捗・得点・提出したレポートは初期状態に戻ります。よろしいですか?")) void run(() => call(`${path}/reset`, {}), practice ? "練習をリセットしました。" : "新しい演習にリセットしました。", clearExercise); }}>{practice ? "練習をリセット" : "演習をリセット"}</button></section>
-      <nav className="aqua-nav" aria-label="テスト演習トラック">{tracks.map(([id, label]) => <button key={id} aria-pressed={track === id} onClick={() => { setTrack(id); setMessage(""); setError(""); }}>{label}</button>)}</nav>
+      <nav className="aqua-nav track-switch" aria-label="テスト演習トラック">{tracks.map(([id, label]) => <button key={id} aria-pressed={track === id} onClick={() => { setTrack(id); setMessage(""); setError(""); }}>{label}</button>)}</nav>
       {track === "red" && !practice && <>
-        <div className="terminal-stage-journey" aria-label="調査ステージを選択">{aquaScenario.redStages.map((item,i) => {
-          const complete = session.completedStages.includes(item.id);
-          const unlocked = complete || session.nextStage === item.id;
-          return <button key={item.id} disabled={!unlocked || busy} aria-pressed={selectedId === item.id} className={complete ? "is-complete" : ""} onClick={() => { setSelectedStage(item.id); setFlag(""); setMessage(""); setError(""); }}><span>0{i+1}</span><strong>{item.title}</strong><small>{complete ? "提出済み" : unlocked ? "調査中" : "未解放"}</small></button>;
-        })}</div>
-        <section className="terminal-mission"><div><div className="eyebrow">STAGE {selectedId.slice(1)} / {stage.skill}</div><h2>{stage.title}：コマンドで手掛かりを探す</h2><p>{stage.studentTask}</p></div><span className="terminal-mission-rule">読み取り調査 / 模擬実行</span></section>
-        <AquaTerminal key={`${session.id}-${selectedId}`} stageId={selectedId} terminal={session.terminal ?? initialTerminal()} busy={busy} execute={executeCommand} hint={generateHint}/>
-        <section className="panel aqua-report terminal-evidence-panel"><div className="eyebrow">EVIDENCE SUBMISSION</div><h2>見つけた証拠を提出する</h2><p>ターミナルに表示された結果を読み、次の証拠を記録してください：{stage.report}</p>
+        <AquaTerminal key={`${session.id}-${selectedId}`} stageId={selectedId} terminal={session.terminal ?? initialTerminal()} busy={busy} execute={executeCommand} hint={generateHint} figureOpen={figureOpen} onFigureToggle={setFigureOpen}
+          aside={<section className="panel mission-panel" aria-labelledby="red-missions-title">
+            <h2 id="red-missions-title" className="mission-title">調査ステージ</h2>
+            <p className="mission-summary">クリア {session.completedStages.length}/5 <span aria-hidden="true">|</span> 得点 {session.score.redFlags}/40</p>
+            <ol className="mission-list" aria-label="調査ステージを選択">{aquaScenario.redStages.map((item,i) => {
+              const complete = session.completedStages.includes(item.id);
+              const unlocked = complete || session.nextStage === item.id;
+              const status = complete ? "done" : unlocked ? "active" : "locked";
+              const Icon = complete ? CheckCircle2 : unlocked ? Play : Lock;
+              const checks = lessonProgress(item.id, session.terminal ?? initialTerminal());
+              return <li key={item.id} className={`mission-row is-${status}`}><button type="button" disabled={!unlocked || busy} aria-pressed={selectedId === item.id} className={complete ? "is-complete" : ""} onClick={() => { setSelectedStage(item.id); setFlag(""); setMessage(""); setError(""); }}>
+                <span className="mission-num">0{i+1}</span>
+                <span className="mission-body"><strong>{item.title}</strong><small className="mission-sub">{checks.done}/{checks.total}</small></span>
+                <span className="mission-state"><Icon size={15} aria-hidden="true" /><small>{complete ? "提出済み" : unlocked ? "調査中" : "未解放"}</small></span>
+              </button></li>;
+            })}</ol>
+          </section>}
+          header={<section className="terminal-mission"><div><div className="eyebrow">STAGE {selectedId.slice(1)} / {stage.skill}</div><h2>{stage.title}：コマンドで手掛かりを探す</h2><p>{stage.studentTask}</p></div><span className="terminal-mission-rule">読み取り調査 / 模擬実行</span></section>}
+          below={<section className="panel aqua-report terminal-evidence-panel"><div className="eyebrow">EVIDENCE SUBMISSION</div><h2>見つけた証拠を提出する</h2><p>ターミナルに表示された結果を読み、次の証拠を記録してください：{stage.report}</p>
           {!activeStage && <p>このステージは提出済みです。端末で再調査するか、上のステージを切り替えてください。</p>}
           {activeStage && <>
             {stage.id === "S05" && <form className="practice-evidence" onSubmit={e => { e.preventDefault(); void run(() => call(`${path}/stage5-evidence`, { sourceIp, firstEventTimestampUtc: firstTime }), "ログの根拠回答を確認しました。払い出されたFLAGを提出してください。", data => setFlag(data.flag ?? "")); }}><fieldset disabled={busy}><legend>Stage 05 / ログの根拠回答</legend><label htmlFor="source-ip">不審な送信元IP<input id="source-ip" value={sourceIp} onChange={e => setSourceIp(e.target.value)} required /></label><label htmlFor="first-time">最初の401のUTC時刻（ISO 8601）<input id="first-time" value={firstTime} placeholder="YYYY-MM-DDTHH:mm:ssZ" onChange={e => setFirstTime(e.target.value)} required /></label><button className="button secondary" type="submit" disabled={busy}>根拠を検証してFLAGを取得</button></fieldset></form>}
@@ -243,15 +262,19 @@ export function AquaPractice({ enabled, autoStart = false, initialTrack = "red",
               {stage.id === "S04" && <label htmlFor="permission">ファイル権限（数値または権限表示）<input id="permission" value={permission} onChange={e => setPermission(e.target.value)} required /></label>}
               <label htmlFor={`practice-flag-${stage.id}`}>出力で見つけたFLAG<input id={`practice-flag-${stage.id}`} value={flag} onChange={e => setFlag(e.target.value)} required autoComplete="off" maxLength={160} /></label><button className="button primary" type="submit" disabled={busy}>FLAGを提出</button></fieldset></form>
           </>}
-        </section>
+        </section>} />
+        <div className="lab-below">
         <ReportForm key={`${session.id}-red`} track="red" saved={session.reports.red} enabled={session.completedStages.length === 5} busy={busy} onSave={report => saveReport("red", report)} />
         {blueEnabled && <button className="button primary practice-next" onClick={() => setTrack("blue")}>Blue Teamへ進む →</button>}
+        </div>
       </>}
       {track === "blue" && <>
         {!practice && <div className="practice-mode-entry"><p>Red Team を終えていなくても、Blue Team の判断・判定だけを練習できます(講師の確認・デモ・復習向け)。</p><button type="button" className="button secondary" disabled={busy} onClick={startPractice}>Blueだけ練習する</button></div>}
         <BlueTeam key={session.id} session={session} enabled={blueEnabled} busy={busy} samples={samples} recoverySamples={recoverySamples} call={blueCall} onGoRed={practice ? undefined : () => { setTrack("red"); setMessage(""); setError(""); window.scrollTo({ top: 0 }); }} />
+        <div className="lab-below">
         <ReportForm key={session.id + "-blue"} track="blue" saved={session.reports.blue} enabled={session.blueState === "recovered"} busy={busy} onSave={report => saveReport("blue", report)} />
         {(session.complete || session.reports.blue) && <button className="button primary practice-next" onClick={() => setTrack("results")}>結果を見る →</button>}
+        </div>
       </>}
       {track === "results" && <>
         <section className="panel aqua-report">

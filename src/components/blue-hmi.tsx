@@ -48,7 +48,8 @@ export function AlarmList({ state }: { state: BlueState }) {
 
 // §4.3 中央監視室HMI風パネル(注入ポンプ状態・アラーム・操作ログ)。正解済みの判断(solved)も表示に反映する。
 const feedLabel = { connected: "接続(要確認)", isolated: "隔離済み", recovery: "隔離済み(復旧データで確認中)", restored: "接続(復旧データ)" } as const;
-export function HmiOverview({ blueState, solved = [], showLog = true }: { blueState: BlueState; solved?: readonly JudgmentId[]; showLog?: boolean }) {
+// showAlarms=false は演習画面の左カラム(状態のタイルだけを並べる)で使う。
+export function HmiOverview({ blueState, solved = [], showLog = true, showAlarms = true }: { blueState: BlueState; solved?: readonly JudgmentId[]; showLog?: boolean; showAlarms?: boolean }) {
   const d = deriveDisplay(blueState, solved);
   const manual = d.mode === "MAN";
   // 承認外の設定(0.40)の間は回転数が下がる。手動の固定注入・設定を戻した後はベースライン相当。
@@ -83,7 +84,7 @@ export function HmiOverview({ blueState, solved = [], showLog = true }: { blueSt
           <dd className={d.accountDisabled ? "" : "alarm-low"}>{d.accountDisabled ? "無効" : "有効"}</dd>
         </div>
       </dl>
-      <AlarmList state={blueState} />
+      {showAlarms && <AlarmList state={blueState} />}
       {showLog && <OpLogTable />}
       <p className="hmi-note"><ShieldAlert size={13} /> 図と値は固定教材と演習状態を表します。実際の設備は操作しません。</p>
     </section>

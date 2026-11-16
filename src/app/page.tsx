@@ -72,39 +72,35 @@ export default function Home() {
         </div>
       </section>
       <section className="stats-strip" aria-label="プラットフォーム概要">
-        <div>
-          <span className="stat-icon">
-            <Layers3 size={20} />
+        <div className="stat-tile">
+          <span className="stat-label">
+            <span className="stat-icon">
+              <Layers3 size={18} />
+            </span>
+            演習シナリオ
           </span>
-          <div>
-            <strong>
-              {scenarioCount} <span>演習シナリオ</span>
-            </strong>
-            <p>水道インフラの調査と防御を学ぶ</p>
-          </div>
+          <strong className="stat-value">{scenarioCount}</strong>
+          <p>水道インフラの調査と防御を学ぶ</p>
         </div>
-        <div>
-          <span className="stat-icon">
-            <Crosshair size={20} />
+        <div className="stat-tile">
+          <span className="stat-label">
+            <span className="stat-icon">
+              <Crosshair size={18} />
+            </span>
+            調査ステージ
           </span>
-          <div>
-            <strong>
-              {stageCount} <span>調査ステージ</span>
-            </strong>
-            <p>基礎から段階的にスキルを習得</p>
-          </div>
+          <strong className="stat-value">{stageCount}</strong>
+          <p>基礎から段階的にスキルを習得</p>
         </div>
-        <div>
-          <span className="stat-icon">
-            <ShieldCheck size={20} />
+        <div className="stat-tile">
+          <span className="stat-label">
+            <span className="stat-icon">
+              <ShieldCheck size={18} />
+            </span>
+            シミュレーション
           </span>
-          <div>
-            <strong>
-              100<span className="percent">%</span>{" "}
-              <span>シミュレーション</span>
-            </strong>
-            <p>架空の設備とデータを使った学習</p>
-          </div>
+          <strong className="stat-value">100<span className="percent">%</span></strong>
+          <p>架空の設備とデータを使った学習</p>
         </div>
       </section>
       <section className="catalog-section">

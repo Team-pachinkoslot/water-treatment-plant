@@ -1,6 +1,6 @@
 "use client";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowDown, ArrowRight, BookOpen, CheckCircle2, Circle, Clock, HelpCircle, Info, Lightbulb, Lock, PlayCircle, X, XCircle } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { AlertTriangle, ArrowDown, ArrowRight, BookOpen, CheckCircle2, Circle, Clock, HelpCircle, Info, Lightbulb, Lock, Play, PlayCircle, X, XCircle } from "lucide-react";
 import { aquaScenario, type BlueActionCode } from "@/lib/scenarios/aqua";
 import {
   BLUE_SCORING, JUDGMENT_IDS, canAdvance, createBlueScenario, judgmentPoints, pointsFloor, solvedIds, toTrendRows, trailingNormal, trendDiff,
@@ -96,7 +96,7 @@ function BlueGuide({ onClose }: { onClose: () => void }) {
     ["次へ", "正解すると次の判断へ自動で移ります。全問正解でSTEPを進めます。"],
   ] as const;
   return (
-    <section className="panel blue-guide" aria-label="操作の流れ">
+    <section className="panel blue-guide" id="blue-guide" aria-label="操作の流れ">
       <div className="blue-guide-head">
         <strong>はじめに:操作の流れ</strong>
         <button type="button" className="text-link" onClick={onClose}><X size={14} aria-hidden="true" /> 閉じる</button>
@@ -119,8 +119,9 @@ export function BlueTeam({ session, enabled, busy, samples, recoverySamples, cal
   const [results, setResults] = useState<Partial<Record<JudgmentId, BlueCheckResult>>>({});
   const [hints, setHints] = useState<Partial<Record<JudgmentId, BlueHint>>>({});
   const [stepError, setStepError] = useState("");
-  const [pane, setPane] = useState<"materials" | "judge">("materials");
   const [pendingAdvance, setPendingAdvance] = useState(false);
+  // 大きく表示する判断(見出しを押して選んだもの)。未選択なら、いま取り組む判断を表示する。
+  const [picked, setPicked] = useState<JudgmentId | null>(null);
   // 初回だけ操作の流れを表示する(閉じたらこのブラウザでは出さない)。
   // BlueTeam は保存済みセッションの読込後にクライアントでだけ描画されるため、初期値で localStorage を読んでも表示はずれない。
   const [showGuide, setShowGuide] = useState(() => {
@@ -129,8 +130,6 @@ export function BlueTeam({ session, enabled, busy, samples, recoverySamples, cal
   });
   // 状況説明は、最初の判断に取り組むまでは開いておき、その後は畳んで縦の長さを抑える
   const [backgroundOpen, setBackgroundOpen] = useState(() => solvedIds(session.blueProgress.judgments).length === 0);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const barRef = useRef<HTMLElement>(null);
   const step = scenario.steps.find(s => s.code === selected)!;
   const stepView = view.steps[step.code];
   const isCurrent = step.from === session.blueState;
@@ -140,19 +139,17 @@ export function BlueTeam({ session, enabled, busy, samples, recoverySamples, cal
   const focusSpec = focusId ? scenario.byId[focusId] : null;
   const nextStep = scenario.steps.find(s => s.step === step.step + 1);
   const totalSolved = solved.length;
+  const completedSteps = scenario.steps.filter(s => view.steps[s.code].completed).length;
+  const activeId = picked && step.judgments.includes(picked) && !view.judgments[picked].solved
+    ? picked
+    : focusId ?? step.judgments.find(id => !view.judgments[id].solved) ?? null;
+  const activeSpec = activeId ? scenario.byId[activeId] : null;
+  const activeWorking = !!activeSpec && enabled && isCurrent && !view.judgments[activeSpec.id].solved;
 
   function closeGuide() {
     setShowGuide(false);
     try { window.localStorage.setItem(GUIDE_KEY, "1"); } catch { /* 保存できなくても閉じる */ }
   }
-  // 固定バーの高さを測り、スクロール位置と資料欄の固定位置に使う
-  useEffect(() => {
-    const bar = barRef.current, root = rootRef.current;
-    if (!bar || !root || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => root.style.setProperty("--blue-stepbar-h", `${bar.offsetHeight}px`));
-    ro.observe(bar);
-    return () => ro.disconnect();
-  }, []);
   // 正解したら、少し間をおいて次の判断(全問正解なら状態遷移ボタン)へ移る
   useEffect(() => {
     if (!pendingAdvance) return;
@@ -160,20 +157,34 @@ export function BlueTeam({ session, enabled, busy, samples, recoverySamples, cal
     return () => window.clearTimeout(timer);
   });
 
-  function goTo(id: string, nextPane?: "materials" | "judge") {
-    if (nextPane) setPane(nextPane);
+  function goTo(id: string) {
     window.setTimeout(() => scrollToId(id), 30);
   }
-  function goJudgment(id: JudgmentId) { goTo(`judgment-${id}`, "judge"); }
+  /** 判断を大きく表示し、そこへスクロールして入力欄(なければ判定ボタン)へフォーカスを移す */
+  function goJudgment(id: JudgmentId) {
+    setPicked(id);
+    window.setTimeout(() => {
+      scrollToId(`judgment-${id}`);
+      document.getElementById(`judgment-${id}`)
+        ?.querySelector<HTMLElement>("input:not(:disabled), select:not(:disabled), textarea:not(:disabled), button[type=submit]:not(:disabled)")
+        ?.focus({ preventScroll: true });
+    }, 60);
+  }
+  /** STEP を切り替えて、作業パネルの先頭へ戻る */
   function selectStep(code: BlueActionCode) {
-    setSelected(code); setStepError(""); setPendingAdvance(false);
-    goTo("blue-now", "materials");
+    setSelected(code); setStepError(""); setPendingAdvance(false); setPicked(null);
+    goTo("blue-panel");
   }
   function goNext() {
     if (focusId) return goJudgment(focusId);
-    if (advanceReady) return goTo("blue-advance", "judge");
+    if (advanceReady) return goTo("blue-advance");
     if (current && current.code !== selected) return selectStep(current.code);
     if (session.blueState === "recovered") return goTo("blue-report");
+  }
+  function toggleGuide() {
+    const next = !showGuide;
+    setShowGuide(next);
+    if (next) goTo("blue-guide");
   }
   const nextLabel = focusId ? `判断 ${focusId} へ` : advanceReady ? `「${step.actionLabel}」へ` : current && current.code !== selected ? `STEP 0${current.step} へ` : session.blueState === "recovered" ? "防御レポートへ" : null;
 
@@ -226,46 +237,12 @@ export function BlueTeam({ session, enabled, busy, samples, recoverySamples, cal
     nowAction = { label: `判断 ${focusSpec.id} へ`, onClick: () => goJudgment(focusSpec.id) };
   } else if (advanceReady) {
     nowTask = `すべての判断が正解です。「${step.actionLabel}」を押して ${step.to} へ進んでください。`;
-    nowAction = { label: `「${step.actionLabel}」へ`, onClick: () => goTo("blue-advance", "judge") };
+    nowAction = { label: `「${step.actionLabel}」へ`, onClick: () => goTo("blue-advance") };
   }
+  const activeHint = activeSpec ? hints[activeSpec.id] : undefined;
 
   return (
-    <div className="blue-team" ref={rootRef}>
-      <nav className="blue-stepbar" ref={barRef} aria-label="対応STEPの進み具合">
-        <div className="blue-stepbar-top">
-          <strong className="blue-stepbar-now">STEP 0{step.step} <span>/ 判断 {stepView.solved}/{stepView.total}</span>{!isCurrent && <small>{stepView.completed ? "(完了・閲覧中)" : "(閲覧中)"}</small>}</strong>
-          <span className="blue-stepbar-meta">
-            <span><Clock size={13} aria-hidden="true" /> <Elapsed session={session} /></span>
-            <span>得点 {session.score.blueActions}/{BLUE_SCORING.actionsTotal}{practice ? "(練習)" : ""}</span>
-            <span className="blue-stepbar-state" title="現在の模擬状態">{session.blueState}</span>
-          </span>
-          <span className="blue-stepbar-actions">
-            {enabled && nextLabel && <button type="button" className="button secondary" disabled={busy} onClick={goNext}>{nextLabel} <ArrowDown size={13} aria-hidden="true" /></button>}
-            <button type="button" className="blue-icon-button" aria-label="操作の流れを表示" aria-pressed={showGuide} onClick={() => setShowGuide(v => !v)}><HelpCircle size={16} aria-hidden="true" /></button>
-          </span>
-        </div>
-        <ol className="blue-stepper">
-          {scenario.steps.map(s => {
-            const p = view.steps[s.code];
-            const active = s.from === session.blueState;
-            const status = p.completed ? "done" : active ? "active" : "todo";
-            return (
-              <li key={s.code} className={`status-${status}`}>
-                <button type="button" aria-current={selected === s.code ? "step" : undefined} onClick={() => selectStep(s.code)}
-                  aria-label={`STEP 0${s.step} ${s.title}(${p.completed ? "完了" : active ? "進行中" : "未着手"}・判断 ${p.solved}/${p.total})`}>
-                  <span className="blue-stepper-num" aria-hidden="true">{p.completed ? "✓" : s.step}</span>
-                  <span className="blue-stepper-title" aria-hidden="true">{s.title}</span>
-                  <small aria-hidden="true">{p.solved}/{p.total}</small>
-                </button>
-              </li>
-            );
-          })}
-        </ol>
-        <div className="blue-stepbar-progress" role="progressbar" aria-label="判断の進み具合" aria-valuemin={0} aria-valuemax={JUDGMENT_IDS.length} aria-valuenow={totalSolved}>
-          <i style={{ width: `${(totalSolved / JUDGMENT_IDS.length) * 100}%` }} />
-        </div>
-      </nav>
-
+    <div className="blue-team">
       {showGuide && <BlueGuide onClose={closeGuide} />}
 
       {!enabled && (
@@ -276,13 +253,13 @@ export function BlueTeam({ session, enabled, busy, samples, recoverySamples, cal
             <p>5つのFLAGとRed Team調査レポートを提出すると、判断を入力できます。資料は先に閲覧できます。</p>
             <div className="blue-gate-actions">
               {onGoRed && <button type="button" className="button primary" onClick={onGoRed}>Red Team へ <ArrowRight size={13} aria-hidden="true" /></button>}
-              <button type="button" className="button secondary" onClick={() => goTo("blue-now", "materials")}>資料だけ先に見る <ArrowDown size={13} aria-hidden="true" /></button>
+              <button type="button" className="button secondary" onClick={() => goTo("blue-materials")}>資料だけ先に見る <ArrowDown size={13} aria-hidden="true" /></button>
             </div>
           </div>
         </div>
       )}
 
-      <details className="panel blue-background" open={backgroundOpen} onToggle={e => setBackgroundOpen(e.currentTarget.open)}>
+      <details className="panel blue-background lab-figure" open={backgroundOpen} onToggle={e => setBackgroundOpen(e.currentTarget.open)}>
         <summary>状況説明・プロセス図{backgroundOpen ? "" : "(クリックで開く)"}</summary>
         <IncidentMemo />
         <TrainingNotice />
@@ -291,50 +268,89 @@ export function BlueTeam({ session, enabled, busy, samples, recoverySamples, cal
         <ProcessLegend />
       </details>
 
-      <section className="panel blue-step-detail" aria-label={`STEP ${step.step} の作業`}>
-        <div className="eyebrow">STEP 0{step.step} / {step.from} → {step.to}</div>
-        <h2>{step.title}</h2>
-
-        <div className={`blue-now ${enabled && isCurrent && !stepView.completed ? "is-active" : ""}`} id="blue-now">
-          <div className="blue-now-label">いまやること</div>
-          <p className="blue-now-task">{nowTask}</p>
-          {nowSource && <p className="blue-now-where"><BookOpen size={13} aria-hidden="true" /> <strong>見る場所</strong> {nowSource}</p>}
-          {nowAction && <button type="button" className="button primary" onClick={nowAction.onClick}>{nowAction.label} <ArrowDown size={13} aria-hidden="true" /></button>}
-        </div>
-
-        <div className="blue-pane-tabs" role="tablist" aria-label="表示の切り替え">
-          <button type="button" role="tab" aria-selected={pane === "materials"} aria-controls="blue-materials" onClick={() => setPane("materials")}><BookOpen size={14} aria-hidden="true" /> 資料</button>
-          <button type="button" role="tab" aria-selected={pane === "judge"} aria-controls="blue-judge" onClick={() => setPane("judge")}><CheckCircle2 size={14} aria-hidden="true" /> 判断 <small>{stepView.solved}/{stepView.total}</small></button>
-        </div>
-
-        <div className="blue-split" data-pane={pane}>
-          <div className="blue-materials" id="blue-materials" role="region" aria-label="見る資料">
-            <h3 className="blue-section-title">見る資料</h3>
-            <StepMaterials step={step} session={session} samples={samples} solved={solved} />
-            <button type="button" className="button secondary blue-pane-switch" onClick={() => goTo(focusId ? `judgment-${focusId}` : "blue-judge", "judge")}>判断欄へ <ArrowRight size={13} aria-hidden="true" /></button>
+      <div className="lab-columns is-blue">
+        <aside className="lab-aside" aria-label="状態と進み具合">
+          <div className="lab-aside-status">
+            <HmiOverview blueState={session.blueState} solved={solved} showLog={false} showAlarms={false} />
           </div>
+          <div className="lab-aside-missions">
+            <section className="panel mission-panel" aria-labelledby="blue-missions-title">
+              <h2 id="blue-missions-title" className="mission-title">対応STEP</h2>
+              <p className="mission-summary">
+                クリア {completedSteps}/{scenario.steps.length} <span aria-hidden="true">|</span> 得点 {session.score.blueActions}/{BLUE_SCORING.actionsTotal}{practice ? "(練習)" : ""}
+                <span className="mission-time"><Clock size={13} aria-hidden="true" /> <Elapsed session={session} /></span>
+              </p>
+              <div className="mission-progress" role="progressbar" aria-label="判断の進み具合" aria-valuemin={0} aria-valuemax={JUDGMENT_IDS.length} aria-valuenow={totalSolved}>
+                <i style={{ width: `${(totalSolved / JUDGMENT_IDS.length) * 100}%` }} />
+              </div>
+              <ol className="mission-list" aria-label="対応STEPの進み具合">
+                {scenario.steps.map(s => {
+                  const p = view.steps[s.code];
+                  const active = s.from === session.blueState;
+                  const status = p.completed ? "done" : active ? "active" : "locked";
+                  const label = p.completed ? "完了" : active ? "進行中" : "未着手";
+                  const Icon = p.completed ? CheckCircle2 : active ? Play : Lock;
+                  return (
+                    <li key={s.code} className={`mission-row is-${status}`}>
+                      <button type="button" aria-current={selected === s.code ? "step" : undefined} onClick={() => selectStep(s.code)}
+                        title={status === "locked" ? "前のSTEPを完了すると入力できます。" : undefined}
+                        aria-label={`STEP 0${s.step} ${s.title}(${label}・判断 ${p.solved}/${p.total})`}>
+                        <span className="mission-num" aria-hidden="true">0{s.step}</span>
+                        <span className="mission-body" aria-hidden="true"><strong>{s.title}</strong><small className="mission-sub">{s.from} → {s.to}</small></span>
+                        <span className="mission-state" aria-hidden="true"><span><Icon size={15} /> {label}</span><small>判断 {p.solved}/{p.total}</small></span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+            </section>
+          </div>
+          {activeWorking && activeSpec && (
+            <div className="lab-aside-hints">
+              <section className="panel lab-hints" id="blue-hints" aria-label={`判断 ${activeSpec.id} のヒント`}>
+                <div className="command-hint-heading"><div><Lightbulb size={14} aria-hidden="true" /><span>ヒント</span></div><span>「実行例」を見ると上限 {pointsFloor(activeSpec.points)}点</span></div>
+                <p className="lab-hints-target"><span className="judgment-id">{activeSpec.id}</span> {activeSpec.title}</p>
+                <div className="hint-levels">{hintLabels.map((label, index) => <button key={label} type="button" disabled={busy} aria-pressed={activeHint?.level === index} onClick={() => void hint(activeSpec, index)}><span>0{index + 1}</span>{label}</button>)}</div>
+                {activeHint && <div className="generated-hint"><small>{hintLabels[activeHint.level]}</small><p>{activeHint.hint}</p></div>}
+              </section>
+            </div>
+          )}
+        </aside>
 
-          <div className="blue-judge" id="blue-judge" role="region" aria-label="判断・記入">
-            <h3 className="blue-section-title">判断・記入</h3>
-            <ol className="judgment-chips" aria-label="このSTEPの判断">
-              {step.judgments.map(id => {
-                const rec = view.judgments[id];
-                const state = rec.solved ? "solved" : rec.wrongAttempts > 0 ? "retry" : "todo";
-                const label = rec.solved ? "正解" : rec.wrongAttempts > 0 ? "やり直し" : "未回答";
-                const Icon = rec.solved ? CheckCircle2 : rec.wrongAttempts > 0 ? AlertTriangle : Circle;
-                return <li key={id}><button type="button" className={`judgment-chip is-${state} ${focusId === id ? "is-focus" : ""}`} onClick={() => goJudgment(id)}>
-                  <Icon size={12} aria-hidden="true" /> <span className="mono">{id}</span> {label}{focusId === id && <span className="judgment-chip-now">いまここ</span>}
-                </button></li>;
-              })}
-            </ol>
+        <div className="lab-work">
+          <section className="panel blue-step-detail" id="blue-panel" aria-label={`STEP ${step.step} の作業`}>
+            <div className="work-head">
+              <div>
+                <div className="eyebrow">STEP 0{step.step} / {step.from} → {step.to}</div>
+                <h2>{step.title}</h2>
+              </div>
+              <span className="work-head-actions">
+                {enabled && nextLabel && <button type="button" className="button secondary" disabled={busy} onClick={goNext}>{nextLabel} <ArrowDown size={13} aria-hidden="true" /></button>}
+                <button type="button" className="blue-icon-button" aria-label="操作の流れを表示" aria-pressed={showGuide} onClick={toggleGuide}><HelpCircle size={16} aria-hidden="true" /></button>
+              </span>
+            </div>
+
+            <div className={`blue-now ${enabled && isCurrent && !stepView.completed ? "is-active" : ""}`} id="blue-now">
+              <div className="blue-now-label">いまやること</div>
+              <p className="blue-now-task">{nowTask}</p>
+              {nowSource && <p className="blue-now-where"><BookOpen size={13} aria-hidden="true" /> <strong>見る場所</strong> {nowSource}</p>}
+              {nowAction && <button type="button" className="button primary" onClick={nowAction.onClick}>{nowAction.label} <ArrowDown size={13} aria-hidden="true" /></button>}
+            </div>
+
+            <h3 className="blue-section-title" id="blue-materials"><span className="blue-section-num" aria-hidden="true">1</span>見る資料</h3>
+            <div className="blue-materials-body" role="region" aria-labelledby="blue-materials">
+              <StepMaterials step={step} session={session} samples={samples} />
+            </div>
+
+            <h3 className="blue-section-title" id="blue-judge"><span className="blue-section-num" aria-hidden="true">2</span>判断・記入 <small>{stepView.solved}/{stepView.total}</small></h3>
             <p className="blue-help">誤答1回ごとに−{BLUE_SCORING.mistakePenalty}点(下限は配点の50%)。ヒントの「実行例」を見た判断は配点の50%が上限です。正解した判断は固定されます。</p>
             <div className="judgment-list">
               {step.judgments.map(id => {
                 const spec = scenario.byId[id];
                 return (
-                  <JudgmentCard key={id} spec={spec} rec={view.judgments[id]} progress={progress} enabled={enabled} busy={busy} isCurrent={isCurrent} isFocus={focusId === id}
-                    draft={drafts[id]} setDraft={v => setDrafts(prev => ({ ...prev, [id]: v }))} result={results[id]} hint={hints[id]}
-                    onCheck={() => void check(spec)} onHint={i => void hint(spec, i)} onShowMaterials={() => goTo("blue-materials", "materials")}
+                  <JudgmentCard key={id} spec={spec} rec={view.judgments[id]} progress={progress} enabled={enabled} busy={busy} isCurrent={isCurrent} isActive={activeId === id}
+                    draft={drafts[id]} setDraft={v => setDrafts(prev => ({ ...prev, [id]: v }))} result={results[id]}
+                    onCheck={() => void check(spec)} onSelect={() => goJudgment(id)} onShowMaterials={() => goTo("blue-materials")}
                     next={results[id]?.ok && nextLabel ? { label: nextLabel, onClick: () => { setPendingAdvance(false); goNext(); } } : null}
                     extra={<JudgmentExtra spec={spec} session={session} progress={progress} recovery={recoverySamples} enabled={enabled} busy={busy} isCurrent={isCurrent} onObserve={() => void observe()} />} />
                 );
@@ -358,12 +374,12 @@ export function BlueTeam({ session, enabled, busy, samples, recoverySamples, cal
                 <button type="button" className="button primary blue-report-link" onClick={() => { scrollToId("blue-report"); document.getElementById("blue-report")?.querySelector<HTMLElement>("textarea")?.focus({ preventScroll: true }); }}>防御レポートの提出へ進む ↓</button>
               </div>
             )}
-          </div>
+          </section>
         </div>
-      </section>
+      </div>
 
-      {enabled && <MobileActionBar busy={busy} focusSpec={focusSpec} progress={progress} advanceReady={advanceReady} actionLabel={step.actionLabel}
-        onSubmit={() => { if (focusId) goJudgment(focusId); }} onAdvance={() => void transition()} next={nextLabel ? { label: nextLabel, onClick: goNext } : null} />}
+      {enabled && <MobileActionBar busy={busy} focusSpec={activeWorking ? activeSpec : null} progress={progress} advanceReady={advanceReady} actionLabel={step.actionLabel}
+        onSubmit={() => { if (activeId) goJudgment(activeId); }} onAdvance={() => void transition()} next={nextLabel ? { label: nextLabel, onClick: goNext } : null} />}
 
       <GlossaryPanel />
     </div>
@@ -386,9 +402,27 @@ function MobileActionBar({ busy, focusSpec, progress, advanceReady, actionLabel,
   );
 }
 
-function JudgmentCard({ spec, rec, progress, enabled, busy, isCurrent, isFocus, draft, setDraft, result, hint, onCheck, onHint, onShowMaterials, next, extra }: {
-  spec: JudgmentSpec; rec: BlueJudgmentView; progress: BlueProgress; enabled: boolean; busy: boolean; isCurrent: boolean; isFocus: boolean;
-  draft: unknown; setDraft: (v: unknown) => void; result?: BlueCheckResult; hint?: BlueHint; onCheck: () => void; onHint: (index: number) => void;
+/** 回答済みの判断を1行に畳んだときに見せる回答(選択肢の表示名・入力値) */
+function answerText(spec: JudgmentSpec, value: unknown): string {
+  const input = spec.input;
+  switch (input.kind) {
+    case "select":
+    case "radio":
+      return input.options.find(o => o.id === value)?.label ?? str(value);
+    case "multi":
+      return listOf(value).map(id => input.options.find(o => o.id === id)?.label ?? id).join("、");
+    case "text":
+      return str(value);
+    case "number":
+      return str(value) ? `${str(value)} ${input.unit}` : "";
+    case "action":
+      return "";
+  }
+}
+
+function JudgmentCard({ spec, rec, progress, enabled, busy, isCurrent, isActive, draft, setDraft, result, onCheck, onSelect, onShowMaterials, next, extra }: {
+  spec: JudgmentSpec; rec: BlueJudgmentView; progress: BlueProgress; enabled: boolean; busy: boolean; isCurrent: boolean; isActive: boolean;
+  draft: unknown; setDraft: (v: unknown) => void; result?: BlueCheckResult; onCheck: () => void; onSelect: () => void;
   onShowMaterials: () => void; next: { label: string; onClick: () => void } | null; extra: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -409,11 +443,26 @@ function JudgmentCard({ spec, rec, progress, enabled, busy, isCurrent, isFocus, 
     : waiting ? <><Lock size={14} aria-hidden="true" /> 前の判断の後 / 配点 {spec.points}点</>
     : rec.wrongAttempts ? <><AlertTriangle size={14} aria-hidden="true" /> やり直し(誤答 {rec.wrongAttempts} 回)/ 配点 {spec.points}点</>
     : <><PlayCircle size={14} aria-hidden="true" /> 未回答 / 配点 {spec.points}点</>;
+
+  // 未回答で、いま表示していない問い:薄い見出しだけ(押すと大きく表示する)
+  if (!rec.solved && !isActive) {
+    return (
+      <form id={base} className="judgment-card is-pending" aria-labelledby={`${base}-title`} onSubmit={e => e.preventDefault()}>
+        <button type="button" className="judgment-pending" onClick={onSelect}>
+          <span className="judgment-id">{spec.id}</span>
+          <span className="judgment-pending-title" id={`${base}-title`}>{spec.title}</span>
+          <span className={`judgment-status ${rec.wrongAttempts ? "is-retry" : ""}`}>{status}</span>
+        </button>
+      </form>
+    );
+  }
   const collapsed = rec.solved && !open;
+  const answer = rec.solved ? answerText(spec, rec.answer) : "";
   return (
-    <form id={base} className={`judgment-card ${rec.solved ? "is-solved" : ""} ${isFocus ? "is-focus" : ""} ${collapsed ? "is-collapsed" : ""}`} aria-labelledby={`${base}-title`} onSubmit={e => { e.preventDefault(); if (working && !busy) onCheck(); }}>
+    <form id={base} className={`judgment-card ${rec.solved ? "is-solved" : ""} ${isActive ? "is-focus" : ""} ${collapsed ? "is-collapsed" : ""}`} aria-labelledby={`${base}-title`} onSubmit={e => { e.preventDefault(); if (working && !busy) onCheck(); }}>
       <div className="judgment-head">
         <h4 id={`${base}-title`}><span className="judgment-id">{spec.id}</span>{spec.title}</h4>
+        {collapsed && answer && <span className="judgment-answer" title={answer}>{answer}</span>}
         <span className={`judgment-status ${rec.solved ? "is-solved" : rec.wrongAttempts ? "is-retry" : ""}`}>{status}</span>
       </div>
       {result?.ok && <div aria-live="polite"><FeedbackBox result={result} next={next} /></div>}
@@ -434,13 +483,6 @@ function JudgmentCard({ spec, rec, progress, enabled, busy, isCurrent, isFocus, 
           </div>
         )}
         {!result?.ok && <div aria-live="polite">{result && <FeedbackBox result={result} next={null} />}</div>}
-        {working && (
-          <div className="judgment-hints">
-            <div className="command-hint-heading"><div><Lightbulb size={14} aria-hidden="true" /><span>ヒント</span></div><span>「実行例」を見ると上限 {pointsFloor(spec.points)}点</span></div>
-            <div className="hint-levels">{hintLabels.map((label, index) => <button key={label} type="button" disabled={busy} aria-pressed={hint?.level === index} onClick={() => onHint(index)}><span>0{index + 1}</span>{label}</button>)}</div>
-            {hint && <div className="generated-hint"><small>{hintLabels[hint.level]}</small><p>{hint.hint}</p></div>}
-          </div>
-        )}
       </>}
     </form>
   );
@@ -547,9 +589,9 @@ function JudgmentExtra({ spec, session, progress, recovery, enabled, busy, isCur
   }
 }
 
-function StepMaterials({ step, session, samples, solved }: { step: StepSpec; session: SessionView; samples: TelemetrySample[]; solved: readonly JudgmentId[] }) {
-  // 中央監視室の状態は STEP 02・03 の判断で使うため、資料欄に置いて判断欄と並べて見られるようにする。
-  const hmi = <HmiOverview blueState={session.blueState} solved={solved} showLog={false} />;
+function StepMaterials({ step, session, samples }: { step: StepSpec; session: SessionView; samples: TelemetrySample[] }) {
+  // 中央監視室の状態(注入ポンプ・設定値など)は左カラムのタイルに常に表示する。資料欄にはアラーム一覧を置く。
+  const hmi = <AlarmList state={session.blueState} />;
   switch (step.code) {
     case "ACKNOWLEDGE_ANOMALY":
       return <>

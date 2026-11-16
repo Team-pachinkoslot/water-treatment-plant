@@ -6,14 +6,19 @@ import {
   ArrowUpRight,
   BookOpen,
   Box,
-  ChevronRight,
   FlaskConical,
   LayoutDashboard,
-  LockKeyhole,
   Menu,
   ShieldCheck,
   X,
 } from "lucide-react";
+
+const links = [
+  { href: "/", label: "概要", icon: LayoutDashboard },
+  { href: "/labs/water-treatment", label: "演習ラボ", icon: FlaskConical },
+  { href: "/dashboard", label: "開発プレビュー", icon: Box },
+  { href: "/guide", label: "学習ガイド", icon: BookOpen },
+];
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
@@ -21,6 +26,18 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const [rules, setRules] = useState(false);
   const dialogRef = useRef<HTMLElement>(null);
   const rulesTriggerRef = useRef<HTMLButtonElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  // スマホ幅のメニューは Esc で閉じ、メニューボタンへフォーカスを戻す
+  useEffect(() => {
+    if (!menu) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      setMenu(false);
+      menuButtonRef.current?.focus();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [menu]);
   useEffect(() => {
     if (!rules) return;
     const previous = rulesTriggerRef.current;
@@ -52,121 +69,94 @@ export function Shell({ children }: { children: React.ReactNode }) {
   }, [rules]);
   return (
     <div className="app-shell">
-      <aside className={`sidebar ${menu ? "is-open" : ""}`}>
-        <Link href="/" className="brand" onClick={() => setMenu(false)}>
-          <span className="brand-mark">
-            <Box size={23} />
-          </span>
-          <span>
-            ICS<span className="brand-light">LAB</span>
-            <small>INDUSTRIAL CYBER SECURITY</small>
-          </span>
-        </Link>
-        <div className="workspace-label">
-          WORKSPACE <span>LOCAL</span>
-        </div>
-        <nav aria-label="メインナビゲーション">
-          {[
-            { href: "/", label: "概要", icon: LayoutDashboard },
-            {
-              href: "/labs/water-treatment",
-              label: "演習ラボ",
-              icon: FlaskConical,
-            },
-            { href: "/dashboard", label: "開発プレビュー", icon: Box },
-            { href: "/guide", label: "学習ガイド", icon: BookOpen },
-          ].map(({ href, label, icon: Icon }) => (
-            <Link
-              onClick={() => setMenu(false)}
-              className={`nav-link ${(href === "/" ? path === "/" : path.startsWith(href)) ? "active" : ""}`}
-              href={href}
-              key={href}
-            >
-              <Icon size={18} />
-              {label}
-            </Link>
-          ))}
-        </nav>
-        <div className="sidebar-section">
-          <span>LEARNING ENVIRONMENT</span>
-          <div>
-            <i className="dot amber" /> Phase 1 <small>開発中</small>
+      <header className={`site-header ${menu ? "is-open" : ""}`}>
+        <div className="site-header-inner">
+          <Link href="/" className="brand" onClick={() => setMenu(false)}>
+            <span className="brand-mark">
+              <Box size={20} />
+            </span>
+            <span>
+              ICS<span className="brand-light">LAB</span>
+              <small>INDUSTRIAL CYBER SECURITY</small>
+            </span>
+          </Link>
+          <div className="site-menu" id="site-menu">
+            <nav className="site-nav" aria-label="メインナビゲーション">
+              {links.map(({ href, label, icon: Icon }) => {
+                const active =
+                  href === "/" ? path === "/" : path.startsWith(href);
+                return (
+                  <Link
+                    onClick={() => setMenu(false)}
+                    className={`nav-link ${active ? "active" : ""}`}
+                    aria-current={active ? "page" : undefined}
+                    href={href}
+                    key={href}
+                  >
+                    <Icon size={16} aria-hidden="true" />
+                    {label}
+                  </Link>
+                );
+              })}
+            </nav>
+            <ul className="env-status" aria-label="環境の状態">
+              <li>
+                <i className="dot cyan" aria-hidden="true" /> LOCAL ENVIRONMENT
+              </li>
+              <li>
+                <i className="dot cyan" aria-hidden="true" /> Sandbox only
+              </li>
+              <li>
+                <i className="dot amber" aria-hidden="true" /> Phase 1{" "}
+                <small>開発中</small>
+              </li>
+            </ul>
           </div>
-          <p>
-            ローカルの模擬環境で、
-            <br />
-            産業システムの安全を学ぶ。
-          </p>
+          <button
+            ref={menuButtonRef}
+            className="menu-button"
+            onClick={() => setMenu(!menu)}
+            aria-label="メニュー"
+            aria-expanded={menu}
+            aria-controls="site-menu"
+          >
+            {menu ? <X size={21} /> : <Menu size={21} />}
+          </button>
         </div>
-        <div className="sidebar-bottom">
-          <div className="sandbox-card">
-            <ShieldCheck size={21} />
-            <strong>Sandbox only</strong>
-            <p>
-              すべて架空の設備・データを
-              <br />
-              使用する学習環境です。
-            </p>
-            <button ref={rulesTriggerRef} onClick={() => setRules(true)}>
+      </header>
+      <main id="main-content">{children}</main>
+      <footer className="footer">
+        <div className="footer-inner">
+          <div className="footer-sandbox">
+            <ShieldCheck size={18} aria-hidden="true" />
+            <p>すべて架空の設備・データを使用する学習環境です。</p>
+            <button
+              ref={rulesTriggerRef}
+              className="text-link"
+              onClick={() => setRules(true)}
+            >
               演習ルールを確認 <ArrowUpRight size={13} />
             </button>
           </div>
-          <div className="version">
-            <span>ICS LAB</span>
+          <div className="footer-about">
+            <span>LEARNING ENVIRONMENT</span>
+            <p>ローカルの模擬環境で、産業システムの安全を学ぶ。</p>
+          </div>
+          <div className="footer-meta">
             <span>
-              v0.1.0 <i className="dot" />
+              © 2026 ICS Lab <span className="footer-separator">/</span> Learn.
+              Investigate. Defend.
+            </span>
+            <span>
+              <i className="dot amber" /> モック環境{" "}
+              <span className="footer-separator">·</span> ARM64 / VMware Fusion
+            </span>
+            <span className="version">
+              ICS LAB v0.1.0 <i className="dot" />
             </span>
           </div>
         </div>
-      </aside>
-      {menu && (
-        <button
-          className="menu-backdrop"
-          aria-label="メニューを閉じる"
-          onClick={() => setMenu(false)}
-        />
-      )}
-      <div className="main-shell">
-        <header className="topbar">
-          <div className="breadcrumb">
-            <button
-              className="menu-button"
-              onClick={() => setMenu(!menu)}
-              aria-label="メニュー"
-            >
-              <Menu size={21} />
-            </button>
-            <span>ワークスペース</span>
-            <ChevronRight size={13} />
-            <strong>
-              {path.startsWith("/labs/")
-                ? "シナリオ詳細"
-                : path === "/dashboard"
-                  ? "開発プレビュー"
-                  : path === "/guide"
-                    ? "学習ガイド"
-                    : "概要"}
-            </strong>
-          </div>
-          <div className="topbar-right">
-            <span className="local-badge">
-              <LockKeyhole size={12} /> LOCAL ENVIRONMENT
-            </span>
-            <span className="avatar">L</span>
-          </div>
-        </header>
-        <main id="main-content">{children}</main>
-        <footer className="footer">
-          <span>
-            © 2026 ICS Lab <span className="footer-separator">/</span> Learn.
-            Investigate. Defend.
-          </span>
-          <span>
-            <i className="dot amber" /> モック環境{" "}
-            <span className="footer-separator">·</span> ARM64 / VMware Fusion
-          </span>
-        </footer>
-      </div>
+      </footer>
       {rules && (
         <div className="modal-backdrop" onClick={() => setRules(false)}>
           <section
