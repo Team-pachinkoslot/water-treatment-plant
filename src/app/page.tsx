@@ -1,6 +1,5 @@
 import Link from "next/link";
 import {
-  ArrowRight,
   ArrowUpRight,
   BookOpen,
   Crosshair,
@@ -12,6 +11,10 @@ import {
 import { labs } from "@/lib/labs";
 import { LabCard } from "@/components/lab-card";
 import { PlantDiagram } from "@/components/plant-diagram";
+import { aquaScenario } from "@/lib/scenarios/aqua";
+const twoDigits = (n: number) => String(n).padStart(2, "0");
+const scenarioCount = twoDigits(labs.length);
+const stageCount = twoDigits(aquaScenario.redStages.length);
 export default function Home() {
   return (
     <div className="page home-page">
@@ -75,9 +78,9 @@ export default function Home() {
           </span>
           <div>
             <strong>
-              03 <span>演習シナリオ</span>
+              {scenarioCount} <span>演習シナリオ</span>
             </strong>
-            <p>水道・電力・鉄道のインフラを学ぶ</p>
+            <p>水道インフラの調査と防御を学ぶ</p>
           </div>
         </div>
         <div>
@@ -86,7 +89,7 @@ export default function Home() {
           </span>
           <div>
             <strong>
-              05 <span>調査ステージ</span>
+              {stageCount} <span>調査ステージ</span>
             </strong>
             <p>基礎から段階的にスキルを習得</p>
           </div>
@@ -107,16 +110,11 @@ export default function Home() {
       <section className="catalog-section">
         <div className="section-heading">
           <div>
-            <div className="eyebrow">EXPLORE THE LABS</div>
-            <h2>
-              次の挑戦を見つける<span>03</span>
-            </h2>
+            <div className="eyebrow">SCENARIO</div>
+            <h2>演習シナリオ</h2>
           </div>
-          <Link href="/labs" className="text-link">
-            すべてのラボ <ArrowRight size={16} />
-          </Link>
         </div>
-        <div className="lab-grid">
+        <div className="featured-lab-list">
           {labs.map((lab) => (
             <LabCard lab={lab} key={lab.id} />
           ))}

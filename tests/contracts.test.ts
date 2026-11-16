@@ -6,19 +6,19 @@ import { GET as list } from "../src/app/api/labs/route";
 import { GET as detail } from "../src/app/api/labs/[slug]/route";
 
 describe("Phase 1 catalog contract", () => {
-  it("keeps the agreed three stable IDs and slugs", () => {
+  it("publishes only the water treatment scenario with its stable ID and slug", () => {
     expect(labs.map(({ id, slug }) => [id, slug])).toEqual([
       ["water-01", "water-treatment"],
-      ["power-01", "power-substation"],
-      ["rail-01", "railway-operations"],
     ]);
+    for (const slug of ["power-substation", "railway-operations"])
+      expect(getLab(slug)).toBeUndefined();
   });
   it("uses the requested fictional city for every facility", () => {
     expect(CITY_NAME).toBe("七王子市");
     for (const lab of labs) expect(lab.subtitle).toContain(CITY_NAME);
   });
   it("offers AQUA browser exercise while keeping VM runtime disconnected", () => {
-    expect(labs.map(lab => lab.status)).toEqual(["available", "coming_soon", "coming_soon"]);
+    expect(labs.map(lab => lab.status)).toEqual(["available"]);
     expect(runtimeProvider).toMatchObject({
       mode: "disabled",
       connected: false,
@@ -60,11 +60,11 @@ describe("read-only mock API", () => {
       runtime: { mode: "disabled", connected: false },
     });
   });
-  it("returns exactly the three mock labs", async () => {
+  it("returns exactly the published mock lab", async () => {
     const response = list();
     expect(response.headers.get("content-type")).toContain("application/json");
     const data = await response.json();
-    expect(data.total).toBe(3);
+    expect(data.total).toBe(1);
     expect(data.labs).toEqual(labs);
     expect(data.dataSource).toBe("mock");
   });

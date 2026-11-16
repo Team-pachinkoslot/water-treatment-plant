@@ -28,7 +28,7 @@ async function api(path = "", payload, expected = 200, useCookie = true) {
   if (data.session) session = data.session;
   return data;
 }
-for (const path of ["/", "/labs", "/labs/water-treatment", "/labs/water-treatment/practice", "/labs/power-substation", "/labs/railway-operations"]) {
+for (const path of ["/", "/labs/water-treatment", "/labs/water-treatment/practice"]) {
   const response = await fetch(`${base.origin}${path}`);
   assert.equal(response.status, 200);
   const html = await response.text();
@@ -37,6 +37,12 @@ for (const path of ["/", "/labs", "/labs/water-treatment", "/labs/water-treatmen
     assert(html.includes('href="/labs/water-treatment/practice?start=1"'), "Start link is missing");
     assert(html.includes("ブラウザで演習を始める"), "Available exercise panel is missing");
   }
+}
+// 一覧と非公開シナリオのURLは、浄水場のシナリオ詳細へ一時リダイレクトする。
+for (const path of ["/labs", "/labs/power-substation", "/labs/railway-operations"]) {
+  const response = await fetch(`${base.origin}${path}`, { redirect: "manual" });
+  assert.equal(response.status, 307, `Unexpected status for ${path}`);
+  assert.equal(new URL(response.headers.get("location"), base).pathname, "/labs/water-treatment");
 }
 const health = await (await fetch(`${base.origin}/api/health`)).json();
 assert.equal(health.runtime.connected, false);

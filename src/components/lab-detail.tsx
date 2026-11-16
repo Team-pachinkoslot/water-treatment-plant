@@ -16,11 +16,10 @@ import { PlantDiagram } from "./plant-diagram";
 export function LabDetail({ lab, exerciseEnabled = false }: { lab: Lab; exerciseEnabled?: boolean }) {
   const [tab, setTab] = useState("overview");
   const [openStage, setOpenStage] = useState<number | null>(0);
-  const water = lab.category === "water";
   return (
     <div className={`page detail-page ${lab.category}`}>
-      <Link className="back-link" href="/labs">
-        <ArrowLeft size={14} /> 演習ラボに戻る
+      <Link className="back-link" href="/">
+        <ArrowLeft size={14} /> 概要に戻る
       </Link>
       <section className="detail-hero">
         <div>
@@ -28,13 +27,7 @@ export function LabDetail({ lab, exerciseEnabled = false }: { lab: Lab; exercise
             <span className="orange-line" /> LAB {lab.number}{" "}
             <span>{lab.level}</span>
           </div>
-          <h1>
-            {water
-              ? "PROJECT AQUA"
-              : lab.category === "power"
-                ? "POWER SUBSTATION"
-                : "RAILWAY OPERATIONS"}
-          </h1>
+          <h1>PROJECT AQUA</h1>
           <h2>{lab.title}</h2>
           <p>{lab.description}</p>
           <div className="skill-tags">
@@ -43,20 +36,20 @@ export function LabDetail({ lab, exerciseEnabled = false }: { lab: Lab; exercise
             ))}
           </div>
         </div>
-        <PlantDiagram category={lab.category} />
+        <PlantDiagram />
       </section>
-      {water && <nav className="aqua-nav" aria-label="PROJECT AQUA 教材">
+      <nav className="aqua-nav" aria-label="PROJECT AQUA 教材">
         <Link href="/labs/water-treatment/practice?start=1">演習を開始 →</Link>
         <Link href="/labs/water-treatment/red">Red Team / 5つの課題 →</Link>
         <Link href="/labs/water-treatment/blue">Blue Team / 監視モック →</Link>
         <Link href="/labs/water-treatment/results">演習結果</Link>
-      </nav>}
+      </nav>
       <div className="detail-layout">
         <div className="detail-main">
           <div className="detail-tabs" aria-label="シナリオ情報">
             {[
               { id: "overview", label: "概要" },
-              { id: "curriculum", label: water ? "5つのステージ" : "学習内容" },
+              { id: "curriculum", label: "5つのステージ" },
               { id: "safety", label: "演習ルール" },
             ].map((t) => (
               <button
@@ -72,15 +65,9 @@ export function LabDetail({ lab, exerciseEnabled = false }: { lab: Lab; exercise
           {tab === "overview" && (
             <div className="detail-content">
               <div className="eyebrow">MISSION BRIEF</div>
-              <h2>
-                {water
-                  ? "調査の先にある、防御の視点。"
-                  : "情報の不整合を、判断の手掛かりに。"}
-              </h2>
+              <h2>調査の先にある、防御の視点。</h2>
               <p>
-                {water
-                  ? "あなたは許可された訓練チームの新人調査員。七王子市中央浄水場を模した閉域の演習環境で公開サービス、Webページ、管理メモ、Linuxファイル、アクセスログから手掛かりを収集し、5つのFLAGと根拠を集めます。その後は防御担当としてHMI表示値と独立モデルの不一致を調査し、入力隔離、安全モード、正常確認を経て模擬復旧する流れを学びます。"
-                  : lab.description}
+                {"あなたは許可された訓練チームの新人調査員。七王子市中央浄水場を模した閉域の演習環境で公開サービス、Webページ、管理メモ、Linuxファイル、アクセスログから手掛かりを収集し、5つのFLAGと根拠を集めます。その後は防御担当としてHMI表示値と独立モデルの不一致を調査し、入力隔離、安全モード、正常確認を経て模擬復旧する流れを学びます。"}
               </p>
               <h3>このラボで学ぶこと</h3>
               <ul className="objective-list">
@@ -96,26 +83,18 @@ export function LabDetail({ lab, exerciseEnabled = false }: { lab: Lab; exercise
               <div className="track-grid">
                 <div>
                   <Crosshair size={23} />
-                  <div className="eyebrow">
-                    {water ? "RED TEAM" : "INVESTIGATION"}
-                  </div>
-                  <h3>{water ? "調査と証拠収集" : "監視情報を照合"}</h3>
+                  <div className="eyebrow">RED TEAM</div>
+                  <h3>調査と証拠収集</h3>
                   <p>
-                    {water
-                      ? "許可された範囲を調査し、FLAGと根拠を記録。設備制御の操作は行いません。"
-                      : `対象：${lab.monitors.join(" / ")}。情報の信頼性とイベントの時系列を確認します。`}
+                    許可された範囲を調査し、FLAGと根拠を記録。設備制御の操作は行いません。
                   </p>
                 </div>
                 <div>
                   <ShieldCheck size={23} />
-                  <div className="eyebrow">
-                    {water ? "BLUE TEAM" : "SAFE RESPONSE"}
-                  </div>
-                  <h3>{water ? "検知・判断・模擬復旧" : "安全な対応を判断"}</h3>
+                  <div className="eyebrow">BLUE TEAM</div>
+                  <h3>検知・判断・模擬復旧</h3>
                   <p>
-                    {water
-                      ? "計測値とログの食い違いを検知。仮想モデルの分離と安全な復旧の判断根拠を整理します。"
-                      : "架空の設備だけを対象に、異常の拡大防止と復旧に必要な条件を整理します。"}
+                    計測値とログの食い違いを検知。仮想モデルの分離と安全な復旧の判断根拠を整理します。
                   </p>
                 </div>
               </div>
@@ -123,17 +102,12 @@ export function LabDetail({ lab, exerciseEnabled = false }: { lab: Lab; exercise
           )}
           {tab === "curriculum" && (
             <div className="detail-content">
-              <div className="eyebrow">
-                {water ? "ATTACK PATH / 5 STAGES" : "LEARNING OBJECTIVES"}
-              </div>
-              <h2>
-                {water ? "手掛かりを、ひとつずつ。" : "調査から安全な判断へ。"}
-              </h2>
+              <div className="eyebrow">ATTACK PATH / 5 STAGES</div>
+              <h2>手掛かりを、ひとつずつ。</h2>
               <p>
                 以下は学習内容のプレビューです。演習環境と採点機能は未実装です。
               </p>
-              {water ? (
-                <div className="stage-list">
+              <div className="stage-list">
                   {stages.map((s, i) => (
                     <div
                       key={s.en}
@@ -173,22 +147,10 @@ export function LabDetail({ lab, exerciseEnabled = false }: { lab: Lab; exercise
                       )}
                     </div>
                   ))}
-                </div>
-              ) : (
-                <ul className="objective-list">
-                  {lab.objectives.map((o, i) => (
-                    <li key={o}>
-                      <span>{i + 1}</span>
-                      {o}
-                    </li>
-                  ))}
-                </ul>
-              )}
+              </div>
               <div className="notice">
                 <FileText size={17} />
-                {water
-                  ? "クリア条件：5つのFLAG提出と、根拠を記載した調査レポート。"
-                  : "調査した根拠と、対応・復旧の判断条件を記録します。"}
+                クリア条件：5つのFLAG提出と、根拠を記載した調査レポート。
               </div>
             </div>
           )}
@@ -229,13 +191,13 @@ export function LabDetail({ lab, exerciseEnabled = false }: { lab: Lab; exercise
         <aside className="scenario-sidebar">
           <div className="panel">
             <div className="coming-soon">
-              <i className={`dot ${water && exerciseEnabled ? "cyan" : "amber"}`} /> {water && exerciseEnabled ? "BROWSER EXERCISE" : "COMING SOON"}
+              <i className={`dot ${exerciseEnabled ? "cyan" : "amber"}`} /> {exerciseEnabled ? "BROWSER EXERCISE" : "COMING SOON"}
             </div>
-            <h3>{water && exerciseEnabled ? "ブラウザで演習を始める" : "演習環境を準備しています"}</h3>
-            <p>{water && exerciseEnabled ? "Linuxの準備は不要です。5つの調査課題から模擬復旧まで、このサイト内で進められます。" : "現在はシナリオのプレビューをご覧いただけます。"}</p>
-            {water && exerciseEnabled ? <Link className="button primary" href="/labs/water-treatment/practice?start=1"><ArrowRight size={15} /> 演習を開始</Link> : <button className="button disabled" disabled><LockKeyhole size={15} /> 演習を開始（準備中）</button>}
+            <h3>{exerciseEnabled ? "ブラウザで演習を始める" : "演習環境を準備しています"}</h3>
+            <p>{exerciseEnabled ? "Linuxの準備は不要です。5つの調査課題から模擬復旧まで、このサイト内で進められます。" : "現在はシナリオのプレビューをご覧いただけます。"}</p>
+            {exerciseEnabled ? <Link className="button primary" href="/labs/water-treatment/practice?start=1"><ArrowRight size={15} /> 演習を開始</Link> : <button className="button disabled" disabled><LockKeyhole size={15} /> 演習を開始（準備中）</button>}
             <dl>
-              {water && <div><dt>所要時間</dt><dd>50分（Red 30 / Blue 20）</dd></div>}
+              <div><dt>所要時間</dt><dd>50分（Red 30 / Blue 20）</dd></div>
               <div>
                 <dt>難易度</dt>
                 <dd>{lab.level}</dd>
@@ -246,7 +208,7 @@ export function LabDetail({ lab, exerciseEnabled = false }: { lab: Lab; exercise
               </div>
               <div>
                 <dt>ステータス</dt>
-                <dd>{water && exerciseEnabled ? "ブラウザ演習公開中" : "準備中"}</dd>
+                <dd>{exerciseEnabled ? "ブラウザ演習公開中" : "準備中"}</dd>
               </div>
               <div>
                 <dt>実VMランタイム</dt>

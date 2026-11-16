@@ -2,7 +2,7 @@
 
 七王子市の架空施設を舞台にしたブラウザ演習です。添付シナリオの5段階Red Team調査とBlue Teamの異常確認・隔離・模擬復旧を、**Linux・VM・外部DBを使わずVercel上で実行**できます。
 
-`/labs/water-treatment`の「演習を開始」を押すと、新規演習を開始するか、このブラウザに保存された進捗を再開します。LAB 01は利用可能、LAB 02/03は準備中です。ID・slug・名称を維持し、市名は従来の指定に合わせて七王子市へ統一しています。所要時間はRed 30分 + Blue 20分 = 合計50分です。
+`/labs/water-treatment`の「演習を開始」を押すと、新規演習を開始するか、このブラウザに保存された進捗を再開します。公開しているシナリオはLAB 01(浄水場)のみです。ID・slug・名称を維持し、市名は従来の指定に合わせて七王子市へ統一しています。所要時間はRed 30分 + Blue 20分 = 合計50分です。
 
 ## Vercelへの反映
 
@@ -103,7 +103,9 @@ Red FLAG 40点、調査レポート項目の充足10点、Blue対応42点(16の�
 
 | パス | 内容 |
 | --- | --- |
-| `/`、`/labs` | 概要と3ラボのカタログ |
+| `/` | 概要(浄水場シナリオのカードと「演習を始める」) |
+| `/labs` | `/labs/water-treatment`へ一時リダイレクト(307) |
+| `/labs/power-substation`、`/labs/railway-operations` | 非公開。`/labs/water-treatment`へ一時リダイレクト(307) |
 | `/labs/water-treatment` | 有効な「演習を開始」ボタン、ストーリー、安全ルール |
 | `/labs/water-treatment/practice?start=1` | 新規開始または再開 |
 | `/labs/water-treatment/red`、`/blue` | 固定教材のプレビュー。演習画面へのリンクを表示 |
@@ -118,7 +120,7 @@ API・実行契約は[docs/aqua-runtime.md](docs/aqua-runtime.md)を参照して
 - `src/components/aqua-terminal.tsx`、`attack-visualization.tsx`、`aqua-practice.tsx`：ターミナル、ヒント、CG図解、提出画面。
 - `src/lib/scenarios/terminal.server.ts`、`terminal-lessons.ts`：模擬コマンドの解釈、教材・進捗に基づくヒント生成。
 - `src/components/lab-detail.tsx`、`src/app/labs/[slug]/page.tsx`：開始ボタンと公開状態。
-- `src/components/{aqua-practice,aqua-frame,lab-card,catalog}.tsx`、`src/lib/labs.ts`：自動開始・再開、ブラウザ保存、利用可能表示。
+- `src/components/{aqua-practice,aqua-frame,lab-card}.tsx`、`src/lib/labs.ts`：自動開始・再開、ブラウザ保存、利用可能表示。
 - `src/lib/scenarios/{http.server,cloud-state.server,simulator.server,runtime.server}.ts`：HTTPS対応、暗号化チェックポイント、メモリ内実行、既定有効化。
 - `src/app/labs/water-treatment/{practice,red,blue,results}/page.tsx`：演習・教材・結果の導線。
 - `scripts/prepare-session-key.mjs`、`next.config.ts`、`package.json`、`.env.example`、`.gitignore`：Vercelビルドと鍵のサーバー同梱。

@@ -68,7 +68,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <nav aria-label="メインナビゲーション">
           {[
             { href: "/", label: "概要", icon: LayoutDashboard },
-            { href: "/labs", label: "演習ラボ", icon: FlaskConical },
+            {
+              href: "/labs/water-treatment",
+              label: "演習ラボ",
+              icon: FlaskConical,
+            },
             { href: "/dashboard", label: "開発プレビュー", icon: Box },
             { href: "/guide", label: "学習ガイド", icon: BookOpen },
           ].map(({ href, label, icon: Icon }) => (
@@ -80,7 +84,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
             >
               <Icon size={18} />
               {label}
-              {href === "/labs" && <span className="nav-count">03</span>}
             </Link>
           ))}
         </nav>
@@ -138,13 +141,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <strong>
               {path.startsWith("/labs/")
                 ? "シナリオ詳細"
-                : path === "/labs"
-                  ? "演習ラボ"
-                  : path === "/dashboard"
-                    ? "開発プレビュー"
-                    : path === "/guide"
-                      ? "学習ガイド"
-                      : "概要"}
+                : path === "/dashboard"
+                  ? "開発プレビュー"
+                  : path === "/guide"
+                    ? "学習ガイド"
+                    : "概要"}
             </strong>
           </div>
           <div className="topbar-right">

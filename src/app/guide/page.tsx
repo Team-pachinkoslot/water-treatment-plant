@@ -27,7 +27,7 @@ export default function Guide() {
           {
             icon: Crosshair,
             title: "シナリオと対象範囲を確認する",
-            text: "まずはLAB 01 / PROJECT AQUAから。七王子市中央浄水場を模した架空の訓練環境を調査します。対象ホストと許可された操作範囲を確認します。",
+            text: "LAB 01 / PROJECT AQUAでは、七王子市中央浄水場を模した架空の訓練環境を調査します。対象ホストと許可された操作範囲を確認します。",
           },
           {
             icon: BookOpen,

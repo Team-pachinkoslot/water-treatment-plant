@@ -1,43 +1,5 @@
-import { Droplets, Zap, TrainFront } from "lucide-react";
-export function PlantDiagram({
-  compact = false,
-  category = "water",
-}: {
-  compact?: boolean;
-  category?: "water" | "power" | "rail";
-}) {
-  if (category !== "water")
-    return (
-      <div className={`system-illustration ${category}`} aria-hidden="true">
-        {category === "power" ? (
-          <>
-            <div className="power-tower tower-left" />
-            <div className="power-tower tower-right" />
-            <div className="substation-block">
-              <Zap size={30} />
-            </div>
-            <div className="power-wire wire-a" />
-            <div className="power-wire wire-b" />
-          </>
-        ) : (
-          <>
-            <div className="rail-track rail-a" />
-            <div className="rail-track rail-b" />
-            <div className="train-block">
-              <TrainFront size={39} />
-              <span>07</span>
-            </div>
-            <div className="signal-post">
-              <i />
-              <i />
-            </div>
-          </>
-        )}
-        <span className="diagram-coordinates">
-          {category === "power" ? "SUBSTATION // 02" : "OPERATIONS // 03"}
-        </span>
-      </div>
-    );
+import { Droplets } from "lucide-react";
+export function PlantDiagram({ compact = false }: { compact?: boolean }) {
   return (
     <div
       className={`plant-diagram ${compact ? "compact" : ""}`}

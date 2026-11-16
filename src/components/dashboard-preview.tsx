@@ -14,71 +14,33 @@ import {
 import { labs } from "@/lib/labs";
 import { PlantDiagram } from "./plant-diagram";
 import { runtimeProvider } from "@/lib/runtime";
-const metrics = {
-  water: [
-    {
-      name: "取水槽 水位",
-      value: "72.4",
-      unit: "%",
-      points:
-        "0,52 30,50 60,55 90,42 120,45 150,37 180,40 210,30 240,34 270,27 300,30",
-    },
-    {
-      name: "配水流量",
-      value: "128.6",
-      unit: "m³/h",
-      points:
-        "0,48 30,43 60,47 90,35 120,40 150,35 180,43 210,37 240,39 270,30 300,34",
-    },
-    {
-      name: "残留塩素",
-      value: "0.42",
-      unit: "mg/L",
-      points:
-        "0,40 30,42 60,38 90,43 120,39 150,40 180,35 210,39 240,34 270,38 300,36",
-    },
-  ],
-  power: [
-    {
-      name: "母線電圧",
-      value: "66.0",
-      unit: "kV",
-      points: "0,40 50,42 100,38 150,41 200,39 250,40 300,38",
-    },
-    {
-      name: "負荷電流",
-      value: "245",
-      unit: "A",
-      points: "0,55 50,48 100,50 150,40 200,37 250,42 300,35",
-    },
-    {
-      name: "開閉器",
-      value: "CLOSED",
-      unit: "模擬状態",
-      points: "0,40 300,40",
-    },
-  ],
-  rail: [
-    { name: "列車ID", value: "TR-07", unit: "模擬列車", points: "0,40 300,40" },
-    {
-      name: "模擬位置",
-      value: "12.8",
-      unit: "km",
-      points: "0,65 50,57 100,50 150,43 200,36 250,29 300,22",
-    },
-    {
-      name: "ダイヤ差分",
-      value: "+0",
-      unit: "秒",
-      points: "0,40 50,40 100,40 150,40 200,40 300,40",
-    },
-  ],
-};
+const metrics = [
+  {
+    name: "取水槽 水位",
+    value: "72.4",
+    unit: "%",
+    points:
+      "0,52 30,50 60,55 90,42 120,45 150,37 180,40 210,30 240,34 270,27 300,30",
+  },
+  {
+    name: "配水流量",
+    value: "128.6",
+    unit: "m³/h",
+    points:
+      "0,48 30,43 60,47 90,35 120,40 150,35 180,43 210,37 240,39 270,30 300,34",
+  },
+  {
+    name: "残留塩素",
+    value: "0.42",
+    unit: "mg/L",
+    points:
+      "0,40 30,42 60,38 90,43 120,39 150,40 180,35 210,39 240,34 270,38 300,36",
+  },
+];
 export function DashboardPreview() {
-  const [selected, setSelected] = useState(0);
   const [checking, setChecking] = useState(false);
   const [apiStatus, setApiStatus] = useState<"idle" | "ok" | "error">("idle");
-  const lab = labs[selected];
+  const lab = labs[0];
   async function checkHealth() {
     setChecking(true);
     try {
@@ -107,30 +69,8 @@ export function DashboardPreview() {
         </div>
         <span>PHASE 1</span>
       </div>
-      <div
-        className="filter-tabs dashboard-tabs"
-        aria-label="プレビューする設備"
-      >
-        {labs.map((l, i) => (
-          <button
-            key={l.id}
-            aria-pressed={selected === i}
-            className={selected === i ? "selected" : ""}
-            onClick={() => setSelected(i)}
-          >
-            LAB {l.number}
-            <span>
-              {l.category === "water"
-                ? "水道"
-                : l.category === "power"
-                  ? "電力"
-                  : "鉄道"}
-            </span>
-          </button>
-        ))}
-      </div>
       <div className="metrics-grid">
-        {metrics[lab.category].map((m) => (
+        {metrics.map((m) => (
           <section className="metric-card" key={m.name}>
             <div className="metric-label">
               {m.name}
@@ -172,7 +112,7 @@ export function DashboardPreview() {
             </h2>
             <span>ILLUSTRATION</span>
           </div>
-          <PlantDiagram category={lab.category} />
+          <PlantDiagram />
           <div className="topology-legend">
             <span>
               <i className="dot cyan" />
