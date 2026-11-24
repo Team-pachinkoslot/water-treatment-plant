@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { CheckCircle2, Info, Lock, Play } from "lucide-react";
 import { aquaScenario } from "@/lib/scenarios/aqua";
@@ -98,6 +98,7 @@ function ReportForm({ track, saved, enabled, busy, onSave }: { track: "red" | "b
 export function AquaPractice({ enabled, autoStart = false, initialTrack = "red", initialPractice = false, samples, recoverySamples }: { enabled: boolean; autoStart?: boolean; initialTrack?: "red" | "blue" | "results"; initialPractice?: boolean; samples: TelemetrySample[]; recoverySamples: TelemetrySample[] }) {
   const [slot, setSlot] = useState<Slot>(initialPractice ? "practice" : "normal");
   const practice = slot === "practice";
+  const syncWindow = useRef<Window | null>(null);
   const [session, setSession] = useState<SessionView | null>(null);
   const [loading, setLoading] = useState(enabled);
   const [busy, setBusy] = useState(false);
@@ -203,6 +204,35 @@ export function AquaPractice({ enabled, autoStart = false, initialTrack = "red",
     } catch (e) { return { error: e instanceof Error ? e.message : "処理に失敗しました。" }; }
     finally { setBusy(false); }
   };
+  useEffect(() => {
+    function sendProgress(event: MessageEvent) {
+      if (!syncWindow.current || event.source !== syncWindow.current || event.origin !== "https://blackput-public.vercel.app") return;
+      const payload = event.data as { type?: string } | null;
+      if (payload?.type !== "ICS_AQUA_PROGRESS_REQUEST_V1" || !session || practice) return;
+      const summary = {
+        version: 1 as const,
+        labId: "water-01" as const,
+        redCompleted: session.completedStages.length,
+        blueCompleted: Object.values(session.blueProgress.steps).filter(step => step.completed).length,
+        score: session.score.total,
+        complete: session.complete,
+        sharedAt: new Date().toISOString(),
+      };
+      syncWindow.current.postMessage({ type: "ICS_AQUA_PROGRESS_V1", summary }, event.origin);
+    }
+    window.addEventListener("message", sendProgress);
+    return () => window.removeEventListener("message", sendProgress);
+  }, [session, practice]);
+
+  function shareWithIcsLab() {
+    if (!session || practice) return;
+    // ユーザー操作の直後に開くことでポップアップブロックを回避。
+    const opened = window.open("https://blackput-public.vercel.app/dashboard", "_blank");
+    if (!opened) { setError("新しいタブを開けませんでした。ポップアップを許可してください。"); return; }
+    syncWindow.current = opened;
+    setMessage("ICS Labのダッシュボードを開きました。進捗を受け渡しています。");
+  }
+
   const tracks = (practice ? [["blue", "Blue Team(練習)"], ["results", "結果(練習)"]] : [["red", "Red Team"], ["blue", "Blue Team"], ["results", "結果・レポート"]]) as [typeof track, string][];
 
   return <div className="page aqua-page practice-page">
@@ -282,6 +312,7 @@ export function AquaPractice({ enabled, autoStart = false, initialTrack = "red",
             ? <><h2>練習の結果</h2><div className="practice-score">{session.score.blueActions}<small> / {BLUE_SCORING.actionsTotal}(練習)</small></div><p>練習モードの得点は、認定・合計(100点)の得点には反映されません。</p></>
             : <><h2>{session.complete ? "ブラウザ演習を完了しました" : "途中経過"}</h2><div className="practice-score">{session.score.total}<small> / 100</small></div><dl className="practice-score-details"><div><dt>Red Team / 5FLAG</dt><dd>{session.score.redFlags} / 40</dd></div><div><dt>調査レポート項目の充足</dt><dd>{session.score.redReport} / 10</dd></div><div><dt>Blue Team / 対応操作</dt><dd>{session.score.blueActions} / {BLUE_SCORING.actionsTotal}</dd></div><div><dt>検知根拠・防御レポート項目の充足</dt><dd>{session.score.blueEvidence} / {BLUE_SCORING.reportPoints}</dd></div></dl></>}
           <BlueResults session={session} />
+          {!practice && <button type="button" className="button primary" onClick={shareWithIcsLab}>ICS Labに進捗を共有 →</button>}
           <p>これはブラウザ内シミュレーターの演習結果です。実VMの操作技能や文章の品質を認定するものではありません。</p>
           <button className="button secondary" onClick={() => { const url = URL.createObjectURL(new Blob([JSON.stringify(session, null, 2)], { type: "application/json" })); const a = document.createElement("a"); a.href = url; a.download = `aqua-${practice ? "practice" : "test"}-${session.id}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }}>結果とレポートをJSONで保存</button>
         </section>
