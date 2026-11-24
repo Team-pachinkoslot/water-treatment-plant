@@ -16,3 +16,5 @@ node_modules/
 
 # Private build artifact, traced into server functions only.
 .aqua/
+
+/node_modules/
